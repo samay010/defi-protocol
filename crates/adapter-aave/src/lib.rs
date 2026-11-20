@@ -189,7 +189,7 @@ mod tests {
         let a = Action::new(ActionKind::Supply, PROTOCOL_ID, "USDC", 100 * MICRO);
         let post = s.simulate(1, &a).unwrap();
         assert_eq!(post.account.supplied["USDC"], 100 * MICRO);
-        assert!(s.account().supplied.get("USDC").is_none());
+        assert!(!s.account().supplied.contains_key("USDC"));
     }
 
     #[test]

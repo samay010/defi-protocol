@@ -233,6 +233,12 @@ pub mod test_support {
         }
     }
 
+    impl Default for FakeAdapter {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl ProtocolAdapter for FakeAdapter {
         fn id(&self) -> &str {
             "aave"
