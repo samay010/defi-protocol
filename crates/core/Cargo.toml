@@ -1,0 +1,9 @@
+[package]
+name = "protocol-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Core engine: manifests, risk engine, execution engine, supervisor, external-strategy runtime"
+
+[dependencies]

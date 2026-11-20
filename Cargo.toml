@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/adapter-aave",
+    "crates/strategies",
+    "crates/cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# No third-party dependencies in this release: everything is std-only.
+# See docs/adr/0003-std-only-first-release.md

@@ -1,0 +1,12 @@
+name = "health-factor-monitor"
+version = "0.1.0"
+language = "rust"
+entry = "builtin:health-factor-monitor"
+description = "Raises an alert when the account health factor crosses warning or critical levels. Read-only."
+protocols = "aave"
+allowed_actions = "alert"
+tick_timeout_ms = "2000"
+
+[params]
+warn_below = "1.5"
+critical_below = "1.2"
