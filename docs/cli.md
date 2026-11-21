@@ -14,10 +14,10 @@ before 1.0.
 | `test <name\|dir> [--ticks N]` | Run in `calm` and `stress` scenarios (default 12 ticks); fails on errors |
 | `simulate <name\|dir> [--ticks N] [--scenario S] [--mode M]` | In-memory run, prints each tick, saves nothing |
 | `verify <dir> [--pin]` | Print content hash and permissions; `--pin` records the exact source as reviewed |
-| `run <name\|dir> [--mode M] [--ticks N] [--interval-ms MS] [--scenario S] [--instance NAME] [--max-failures N]` | Run continuously (`--ticks 0` = until stopped). Default mode: `approval` |
-| `ps` | List instances |
+| `run <name\|dir> [--mode M] [--ticks N] [--interval-ms MS] [--scenario S] [--instance NAME] [--max-failures N]` | Run continuously (`--ticks 0` = until stopped). Default mode: `approval`. Refused if the instance is already running; continues from saved state after a crash |
+| `ps` | List instances. `stale` means the recorded run's process is gone (crashed or killed) |
 | `inspect <instance>` | Status, account, health factor, pending actions, strategy state, recent audit log |
-| `pause` / `resume` / `stop <instance>` | Lifecycle control (works from another terminal while it runs) |
+| `pause` / `resume` / `stop <instance>` | Lifecycle control (works from another terminal while it runs). `stop` on a stale instance clears it; `pause`/`resume` refuse on a dead run |
 | `pending <instance>` | Actions waiting for approval |
 | `approve <instance> <id>` / `reject <instance> <id>` | Decide a queued action (risk is re-checked on approve) |
 | `act <instance> --kind K --asset A --amount X [--protocol P]` | Manual action, risk-checked like any other |

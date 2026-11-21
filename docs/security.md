@@ -26,7 +26,8 @@ and operational assessments are complete.
 | Execution modes | autonomous / approval / manual; approvals re-checked at approval time |
 | Kill switch | `protocol kill-switch on` blocks all fund-moving actions, alerts still flow |
 | Network gate | mainnet denied by risk; testnet not implemented; only simulation executes |
-| Process limits | per-tick timeout (killed), 64 KiB output cap, 20 proposals/tick, empty environment |
+| Process limits | per-tick timeout (on expiry the strategy's whole process group is killed, so forked background children die too), CPU-time limit (`ulimit -t`, timeout rounded up + 1 s), optional address-space limit (`max_memory_mb`, `ulimit -v`, fails closed if it cannot be applied), 64 KiB output cap, 20 proposals/tick, empty environment |
+| One run per instance | an OS file lock (`run.lock`) makes a second `run` of the same instance fail, even when both start at the same instant; the lock disappears when the process dies, so a crash leaves no stuck instance. `ps` shows a dead run as `stale` |
 | Strict parsing | malformed or truncated strategy output fails the tick |
 | Fault isolation | errors/panics caught per tick; restart, then mark failed; other instances unaffected |
 | Audit log | append-only `audit.log` of every decision with the reason |
@@ -42,7 +43,14 @@ and operational assessments are complete.
    user. **Do not run strategies you have not read.** The CLI says so for unverified strategies.
    Planned: WASM/WASI for Rust/C/C++ (no file/network access by default) and container / seccomp /
    namespace isolation for Python and Java.
-2. **Memory limits** are not enforced (only time and output size).
+2. **Resource limits are partial.** Memory is limited only if the manifest sets `max_memory_mb`
+   (address space, not resident memory; left off by default because the JVM reserves far more
+   address space than it uses and will not start under a tight limit). There are no limits on
+   open files, file size or number of processes, and the CPU limit is best effort (skipped if the
+   user's own hard limit is already lower). The limits come from `ulimit` in a `/bin/sh` wrapper
+   (unix only). They contain accidents; they are not a security boundary.
+   Because the strategy runs in its own process group, Ctrl-C in the terminal does not reach it:
+   the CLI exits and the strategy process ends on its own within its time and CPU limits.
 3. **`protocol build` runs the project's own toolchain** (`cargo`, `cc`, `javac`, ...). Build scripts
    and procedural macros run arbitrary code. Only build code you trust.
 4. **No real transaction simulation**, no signing, no wallets, no chain access.

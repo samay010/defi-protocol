@@ -71,11 +71,19 @@ supervisor applies it between ticks (also while paused), and for a non-running i
 applies it immediately against the persisted state. The global kill switch is a `KILL` marker
 file read before every tick.
 
+**Who is running an instance** is decided by an OS file lock (`run.lock`), not by the `status`
+file: `run` takes the lock for its whole lifetime, a second `run` is refused, and the OS releases
+the lock if the process dies. A `status` of `running`/`paused` with no lock holder is shown as
+`stale`; `run` simply continues from the saved state, `stop` clears the status, and `pause`/`resume`
+refuse to pretend they control a dead run. The CLI decides between "send the command to the live
+run" and "apply it now" by whether it can take the lock. See ADR 0008.
+
 ## Failure model
 
 - Strategy error, timeout, bad output, panic: caught per tick, reported, strategy re-created
   (restart), instance marked `failed` after more than `--max-failures` consecutive failures.
 - One instance failing never affects another instance or the CLI.
+- A timed-out strategy is killed together with every process it spawned (process group).
 - State is written atomically (write temp file, rename).
 
 ## Not built yet (proposed)

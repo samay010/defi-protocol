@@ -882,3 +882,169 @@ fn state_and_audit_log_are_persisted_on_disk() {
         "unexpected secret-like content in {hits:?}"
     );
 }
+
+// ---- instance lock: races and stale status ----------------------------------------------------
+
+fn spawn_run(home: &str, args: &[&str]) -> std::thread::JoinHandle<(i32, String)> {
+    let mut argv: Vec<String> = vec!["--home".into(), home.to_string()];
+    argv.extend(args.iter().map(|s| s.to_string()));
+    std::thread::spawn(move || {
+        let (mut o, mut e) = (Vec::new(), Vec::new());
+        let code = protocol_cli::run(&argv, &mut o, &mut e);
+        (code, String::from_utf8_lossy(&o).to_string())
+    })
+}
+
+fn wait_until(what: &str, f: &dyn Fn() -> bool) {
+    for _ in 0..500 {
+        if f() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("timed out waiting for {what}");
+}
+
+#[test]
+fn a_second_run_of_a_live_instance_is_refused() {
+    let c = Cli::new("race");
+    let home = c.home.to_string_lossy().to_string();
+    let first = spawn_run(
+        &home,
+        &["run", "rate-monitor", "--ticks", "0", "--interval-ms", "20"],
+    );
+    wait_until("first run to be live", &|| {
+        c.ok(&["ps"]).contains("running")
+    });
+
+    let second = c.run(&["run", "rate-monitor", "--ticks", "1", "--interval-ms", "0"]);
+    assert_eq!(second.code, 1);
+    assert!(second.err.contains("already running"), "{}", second.err);
+    // a different instance name of the same strategy is fine
+    c.ok(&[
+        "run",
+        "rate-monitor",
+        "--instance",
+        "other",
+        "--ticks",
+        "1",
+        "--interval-ms",
+        "0",
+    ]);
+
+    c.ok(&["stop", "rate-monitor"]);
+    let (code, out) = first.join().unwrap();
+    assert_eq!(code, 0);
+    assert!(out.contains("stopped"));
+    // after the first run ended, the lock is free again
+    c.ok(&["run", "rate-monitor", "--ticks", "1", "--interval-ms", "0"]);
+}
+
+#[test]
+fn stale_running_status_is_detected_and_recoverable() {
+    let c = Cli::new("stale");
+    c.ok(&["run", "rate-monitor", "--ticks", "1", "--interval-ms", "0"]);
+    // simulate a crash / kill -9: status says running but no process holds the lock
+    let status_file = c.home.join("instances/rate-monitor/status");
+    fs::write(&status_file, "running\n").unwrap();
+
+    let ps = c.ok(&["ps"]);
+    assert!(ps.contains("stale"), "{ps}");
+    assert!(ps.contains("process is gone"));
+    let inspect = c.ok(&["inspect", "rate-monitor"]);
+    assert!(inspect.contains("status:     stale"), "{inspect}");
+
+    // pause/resume must not pretend to control a dead run
+    let pause = c.run(&["pause", "rate-monitor"]);
+    assert_eq!(pause.code, 1);
+    assert!(pause.err.contains("stale"), "{}", pause.err);
+    fs::write(&status_file, "paused\n").unwrap();
+    let resume = c.run(&["resume", "rate-monitor"]);
+    assert_eq!(resume.code, 1);
+    assert!(resume.err.contains("not running"), "{}", resume.err);
+
+    // stop clears the stale status and says so
+    let stop = c.ok(&["stop", "rate-monitor"]);
+    assert!(
+        stop.contains("stale") && stop.contains("marked stopped"),
+        "{stop}"
+    );
+    assert!(c.ok(&["ps"]).contains("stopped"));
+    assert!(c
+        .ok(&["inspect", "rate-monitor"])
+        .contains("cleared stale status"));
+
+    // running again after a crash needs no manual cleanup
+    fs::write(&status_file, "running\n").unwrap();
+    let rerun = c.ok(&["run", "rate-monitor", "--ticks", "1", "--interval-ms", "0"]);
+    assert!(rerun.contains("did not shut down cleanly"), "{rerun}");
+    assert!(rerun.contains("completed"));
+    assert!(c.ok(&["ps"]).contains("completed"));
+}
+
+#[test]
+fn commands_apply_directly_when_the_recorded_run_is_dead() {
+    let c = Cli::new("stale-cmd");
+    c.ok(&[
+        "run",
+        "stable-lending",
+        "--ticks",
+        "2",
+        "--interval-ms",
+        "0",
+    ]);
+    fs::write(c.home.join("instances/stable-lending/status"), "running\n").unwrap();
+    let out = c.ok(&["approve", "stable-lending", "1"]);
+    assert!(
+        out.contains("approve #1: executed"),
+        "applied right away, not queued forever: {out}"
+    );
+    assert!(!out.contains("sent to instance"));
+    assert!(c
+        .ok(&["inspect", "stable-lending"])
+        .contains("funds moved (simulated): 100"));
+}
+
+#[test]
+fn two_runs_starting_at_the_same_instant_cannot_both_win() {
+    let c = Cli::new("simul");
+    let home = c.home.to_string_lossy().to_string();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let mut handles = Vec::new();
+    for _ in 0..2 {
+        let (b, h) = (barrier.clone(), home.clone());
+        handles.push(std::thread::spawn(move || {
+            b.wait(); // both threads reach `run` together
+            let argv: Vec<String> = [
+                "--home",
+                &h,
+                "run",
+                "rate-monitor",
+                "--ticks",
+                "0",
+                "--interval-ms",
+                "20",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            let (mut o, mut e) = (Vec::new(), Vec::new());
+            let code = protocol_cli::run(&argv, &mut o, &mut e);
+            (code, String::from_utf8_lossy(&e).to_string())
+        }));
+    }
+    // the loser returns on its own; the winner keeps running until stopped
+    wait_until("one of the two runs to be refused", &|| {
+        handles.iter().any(|h| h.is_finished())
+    });
+    let finished = handles.iter().filter(|h| h.is_finished()).count();
+    assert_eq!(finished, 1, "exactly one run must have been refused");
+    let idx = handles.iter().position(|h| h.is_finished()).unwrap();
+    let loser = handles.remove(idx).join().unwrap();
+    assert_eq!(loser.0, 1);
+    assert!(loser.1.contains("already running"), "{}", loser.1);
+
+    c.ok(&["stop", "rate-monitor"]);
+    let winner = handles.remove(0).join().unwrap();
+    assert_eq!(winner.0, 0);
+}

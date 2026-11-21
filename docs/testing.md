@@ -1,12 +1,13 @@
 # Testing
 
 ```bash
-cargo test                 # everything (125 tests)
+cargo test                 # everything (138 tests)
 cargo test -p protocol-core
 cargo test -p protocol-cli --test cli      # end-to-end CLI tests
 ```
 
-No network is needed; the project has no third-party dependencies.
+No network is needed once dependencies are fetched (`cargo test --offline` works). The only third-party
+dependency is `sha2` (ADR 0009).
 
 ## Layers
 
@@ -19,6 +20,12 @@ No network is needed; the project has no third-party dependencies.
 
 The language tests skip themselves (with a message) when a toolchain is not installed.
 
+Race and failure-mode tests worth knowing about (each was checked to **fail on the previous code**):
+two `run`s started at the same instant (exactly one wins), a stale `running` status after a crash
+(`ps`/`pause`/`stop`/`run`/`approve` behave correctly), and a timed-out strategy whose forked
+background child must be dead afterwards (Linux, via `/proc`). The memory-limit test uses `python3`
+and skips itself if it is missing. `ulimit` and process-group behaviour is unix only.
+
 ## What passing tests mean
 
 They show the code behaves as specified. They do **not** show that any strategy is profitable or
@@ -27,6 +34,7 @@ yet). Never describe a strategy as safe or profitable because it passes `protoco
 
 ## Not yet tested (because not yet built)
 
-Real adapters against a node, signing, runtime isolation against hostile code, memory limits,
+Real adapters against a node, signing, runtime isolation against hostile code (only accident-level
+limits exist: see `docs/security.md`),
 long-running soak tests, fuzzing of the line-protocol parser (recommended next), Windows.
 Platform: developed and tested on Linux; `sh`-based build commands mean Windows is unsupported.

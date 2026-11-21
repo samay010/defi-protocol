@@ -33,8 +33,13 @@ DONE                                               mandatory last line
 - Parsing is **strict**: an unknown line, a malformed `PROPOSE`, output after `DONE`, or a missing
   `DONE` (a truncated response) makes the tick fail. It is never read as "no proposals".
 - Limits: 20 proposals per tick, 64 KiB of output, `tick_timeout_ms` (default 2000, max 60000).
-- The process starts in the strategy directory with an **empty environment** (only `PATH`), and is
-  killed on timeout. Stderr (first 4 KiB) is shown if you exit non-zero.
+- The process starts in the strategy directory with an **empty environment** (only `PATH`, which is
+  the fixed `/usr/local/bin:/usr/bin:/bin`; bare program names are looked up only there). It runs in
+  its own process group and on timeout the **whole group is killed**, so background processes you
+  fork do not outlive the tick. A CPU-time limit applies (timeout rounded up, plus one second).
+  Stderr (first 4 KiB) is shown if you exit non-zero.
+- Optional `max_memory_mb` (16 to 1048576) sets an address-space limit. It is off by default; do not
+  set it for Java (the JVM reserves far more address space than it uses).
 
 ## What happens to a proposal
 
@@ -57,6 +62,7 @@ max_amount_per_action = "100"      # whole tokens; default 0
 max_total_exposure = "500"         # cumulative per instance; default 0
 min_health_factor = "1.5"          # withdrawals that would go below this are denied
 tick_timeout_ms = "2000"
+max_memory_mb = "256"              # optional; omit for no limit (and always omit for Java)
 
 [params]
 my_threshold = "42"                # delivered as PARAM lines

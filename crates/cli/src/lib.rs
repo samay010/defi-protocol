@@ -703,12 +703,22 @@ fn cmd_run(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
     outln!(out, "permissions (enforced by the risk engine):");
     print_permissions(&res, out);
 
+    // The lock (released by the OS even if a run is killed) decides whether the instance is
+    // running; the status file may be stale after a crash. Held until this function returns.
+    let Some(_instance_lock) = store.lock_instance_retry(&name)? else {
+        return Err(E::Fail(format!(
+            "instance '{name}' is already running (another process holds its lock)"
+        )));
+    };
+    if matches!(store.read_status(&name), Status::Running | Status::Paused) {
+        outln!(
+            out,
+            "note: the previous run of '{name}' did not shut down cleanly (its status was still '{}'); starting a fresh run",
+            store.read_status(&name)
+        );
+    }
+
     let mut meta = if store.exists(&name) {
-        if store.read_status(&name) == Status::Running {
-            return Err(E::Fail(format!(
-                "instance '{name}' is already running. If a previous run crashed, clear it with: protocol stop {name}"
-            )));
-        }
         let mut m = store.load_meta(&name)?;
         if m.strategy_ref != res.strategy_ref() {
             return Err(E::Fail(format!(
@@ -802,7 +812,7 @@ fn cmd_ps(args: Args, store: &Store, out: &mut dyn Write) -> R {
                     out,
                     "{:<24} {:<10} {:<11} {:>5} {:>8}  {}",
                     n,
-                    store.read_status(&n),
+                    display_status(store, &n),
                     m.mode,
                     m.tick,
                     pending,
@@ -812,7 +822,25 @@ fn cmd_ps(args: Args, store: &Store, out: &mut dyn Write) -> R {
             Err(e) => outln!(out, "{n:<24} unreadable: {e}"),
         }
     }
+    if store
+        .list()
+        .iter()
+        .any(|n| display_status(store, n) == "stale")
+    {
+        outln!(out, "\nstale = the run process is gone (crashed or killed). Run it again, or `protocol stop <name>` to clear.");
+    }
     Ok(0)
+}
+
+/// Status as the user should see it: `running`/`paused` only while a process really holds the
+/// instance lock, otherwise `stale`.
+fn display_status(store: &Store, name: &str) -> String {
+    let s = store.read_status(name);
+    if matches!(s, Status::Running | Status::Paused) && !store.is_running(name) {
+        "stale".to_string()
+    } else {
+        s.to_string()
+    }
 }
 
 fn cmd_inspect(args: Args, store: &Store, out: &mut dyn Write) -> R {
@@ -820,7 +848,16 @@ fn cmd_inspect(args: Args, store: &Store, out: &mut dyn Write) -> R {
     let meta = store.load_meta(&name)?;
     outln!(out, "instance:   {name}");
     outln!(out, "strategy:   {}", meta.strategy_ref);
-    outln!(out, "status:     {}", store.read_status(&name));
+    let shown = display_status(store, &name);
+    if shown == "stale" {
+        outln!(
+            out,
+            "status:     stale (last recorded '{}', but no process is running it)",
+            store.read_status(&name)
+        );
+    } else {
+        outln!(out, "status:     {shown}");
+    }
     outln!(
         out,
         "mode:       {}   network: {}   scenario: {}",
@@ -896,12 +933,22 @@ fn cmd_control(args: Args, store: &Store, out: &mut dyn Write, what: Control) ->
                     "cannot pause: instance is {current}, not running"
                 )));
             }
+            if !store.is_running(&name) {
+                return Err(E::Fail(format!(
+                    "cannot pause: instance is not running (stale status from a run that died); use `protocol stop {name}` to clear it"
+                )));
+            }
             (Status::Paused, "paused")
         }
         Control::Resume => {
             if current != Status::Paused {
                 return Err(E::Fail(format!(
                     "cannot resume: instance is {current}, not paused"
+                )));
+            }
+            if !store.is_running(&name) {
+                return Err(E::Fail(format!(
+                    "cannot resume: instance is not running (stale status from a run that died); run it again or `protocol stop {name}`"
                 )));
             }
             (Status::Running, "resumed")
@@ -912,6 +959,18 @@ fn cmd_control(args: Args, store: &Store, out: &mut dyn Write, what: Control) ->
                 Status::Stopped | Status::Completed | Status::Failed
             ) {
                 outln!(out, "instance '{name}' is already {current}");
+                return Ok(0);
+            }
+            if !store.is_running(&name) {
+                store.write_status(&name, Status::Stopped)?;
+                store.append_audit(
+                    &name,
+                    &[format!(
+                        "tick={} event=stopped by=user note=cleared stale status",
+                        meta.tick
+                    )],
+                )?;
+                outln!(out, "instance '{name}' had a stale '{current}' status (its process is gone); marked stopped");
                 return Ok(0);
             }
             (Status::Stopped, "stopped")
@@ -961,15 +1020,17 @@ fn cmd_pending(args: Args, store: &Store, out: &mut dyn Write) -> R {
 fn send_command(store: &Store, name: &str, line: &str, out: &mut dyn Write) -> R {
     let meta = store.load_meta(name)?;
     store.push_command(name, line)?;
-    match store.read_status(name) {
-        Status::Running | Status::Paused => {
+    // If we can take the instance lock nobody is running it, so apply the command here (holding
+    // the lock so a `run` cannot start halfway through). Otherwise a live run picks it up.
+    match store.lock_instance_retry(name)? {
+        None => {
             outln!(
                 out,
                 "sent to instance '{name}'. It applies commands at its next tick or poll."
             );
             outln!(out, "check the result with: protocol inspect {name}");
         }
-        _ => {
+        Some(_lock) => {
             let res = resolve(store, &meta.strategy_ref)?;
             let mut engine = build_engine(store, &meta, &res)?;
             supervisor::apply_commands(store, &meta, &mut engine, &mut |l| outln!(out, "{l}"))?;

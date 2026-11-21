@@ -76,11 +76,17 @@ pub struct Manifest {
     pub max_total_exposure: u64,
     pub min_health_factor: f64,
     pub tick_timeout_ms: u64,
+    /// Address-space limit (`ulimit -v`) for external strategy processes, in MiB.
+    /// `0` means no memory limit. Opt-in because some runtimes (the JVM) reserve far more
+    /// address space than they use and fail to start under a tight limit.
+    pub max_memory_mb: u64,
     pub params: BTreeMap<String, String>,
 }
 
 pub const DEFAULT_TICK_TIMEOUT_MS: u64 = 2_000;
 pub const MAX_TICK_TIMEOUT_MS: u64 = 60_000;
+pub const MIN_MEMORY_MB: u64 = 16;
+pub const MAX_MEMORY_MB: u64 = 1_048_576;
 
 /// Names are used in file paths, so keep them strictly safe.
 pub fn valid_name(s: &str) -> bool {
@@ -139,7 +145,7 @@ impl Manifest {
             }
         }
 
-        const KNOWN: [&str; 12] = [
+        const KNOWN: [&str; 13] = [
             "name",
             "version",
             "language",
@@ -152,6 +158,7 @@ impl Manifest {
             "max_total_exposure",
             "min_health_factor",
             "tick_timeout_ms",
+            "max_memory_mb",
         ];
         for k in top.keys() {
             if !KNOWN.contains(&k.as_str()) {
@@ -248,6 +255,19 @@ impl Manifest {
             }
         };
 
+        let max_memory_mb = match top.get("max_memory_mb") {
+            None => 0,
+            Some(v) => {
+                let m: u64 = v
+                    .parse()
+                    .map_err(|_| format!("max_memory_mb '{v}' is not an integer"))?;
+                if !(MIN_MEMORY_MB..=MAX_MEMORY_MB).contains(&m) {
+                    return Err(format!("max_memory_mb must be {MIN_MEMORY_MB}..={MAX_MEMORY_MB} (or omitted for no limit)"));
+                }
+                m
+            }
+        };
+
         let funds_declared = allowed_actions.iter().any(|a| a.moves_funds());
         if funds_declared && (assets.is_empty() || max_amount_per_action == 0) {
             return Err(
@@ -268,6 +288,7 @@ impl Manifest {
             max_total_exposure,
             min_health_factor,
             tick_timeout_ms,
+            max_memory_mb,
             params,
         })
     }
@@ -330,6 +351,7 @@ max_amount_per_action = "100"
 max_total_exposure = "500.5"
 min_health_factor = "1.8"
 tick_timeout_ms = "1500"
+max_memory_mb = "256"
 
 [params]
 threshold = "42"
@@ -348,6 +370,7 @@ threshold = "42"
         assert_eq!(m.max_amount_per_action, 100_000_000);
         assert_eq!(m.max_total_exposure, 500_500_000);
         assert_eq!(m.tick_timeout_ms, 1500);
+        assert_eq!(m.max_memory_mb, 256);
         assert_eq!(m.params["threshold"], "42");
         assert!(!m.is_builtin());
     }
@@ -361,6 +384,7 @@ threshold = "42"
         assert_eq!(m.allowed_actions, vec![ActionKind::Alert]);
         assert_eq!(m.max_total_exposure, 0);
         assert_eq!(m.tick_timeout_ms, DEFAULT_TICK_TIMEOUT_MS);
+        assert_eq!(m.max_memory_mb, 0, "no memory limit unless declared");
         assert!((m.min_health_factor - 1.5).abs() < 1e-9);
     }
 
@@ -385,6 +409,11 @@ threshold = "42"
         .contains("cannot exceed"));
         assert!(Manifest::parse(&base("min_health_factor=\"0.5\"")).is_err());
         assert!(Manifest::parse(&base("tick_timeout_ms=\"0\"")).is_err());
+        assert!(Manifest::parse(&base("max_memory_mb=\"1\""))
+            .unwrap_err()
+            .contains("max_memory_mb"));
+        assert!(Manifest::parse(&base("max_memory_mb=\"lots\"")).is_err());
+        assert!(Manifest::parse(&base("max_memory_mb=\"99999999\"")).is_err());
         assert!(Manifest::parse(&base("[other]"))
             .unwrap_err()
             .contains("unknown section"));

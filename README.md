@@ -20,7 +20,7 @@ nothing is collected from users, so no on-chain component is needed (see
 ## Quick start
 
 ```bash
-cargo build --release            # no third-party dependencies, std only
+cargo build --release            # needs Rust 1.89+; one dependency (sha2), see ADR 0009
 export PATH="$PWD/target/release:$PATH"
 
 protocol strategies list
@@ -71,7 +71,8 @@ See [docs/roadmap.md](docs/roadmap.md).
 
 ## Important limits
 
-- External strategy processes get a timeout, output cap and an **empty environment**, but they are
+- External strategy processes get a timeout (the whole process group is killed), a CPU-time limit,
+  an optional memory limit, an output cap and an **empty environment**, but they are
   **not OS-sandboxed**: a malicious one could read your files or use the network as your user.
   Read the source of any strategy before running it. See [docs/security.md](docs/security.md).
 - "Verified" means *reviewed*, not safe or profitable.
@@ -90,5 +91,5 @@ See [docs/roadmap.md](docs/roadmap.md).
 ## Tests
 
 ```bash
-cargo test            # 125 tests: unit + end-to-end CLI, including real toolchains
+cargo test            # 138 tests: unit + end-to-end CLI, including real toolchains
 ```

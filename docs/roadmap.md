@@ -25,7 +25,8 @@ Rust workspace, architecture docs and ADRs, strategy interfaces (trait + line pr
 ## Phase 5: Testing infrastructure: started
 - Done: calm/stress simulation, `protocol test`.
 - Next: backtesting on historical data, real transaction simulation (fork or `eth_call`),
-  runtime isolation (OS sandbox, memory limits), parser fuzzing.
+  OS-level runtime isolation (sandbox), parser fuzzing. Done: process-group kill, CPU limit and opt-in
+  memory limit (accident containment only).
 
 ## Gate before any real-asset execution
 All required: external security review of the sandbox and signer, independent audit, legal

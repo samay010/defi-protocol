@@ -10,15 +10,22 @@
 //!     pending.state              actions waiting for approval
 //!     strategy.state             strategy-owned state
 //!     audit.log                  append-only audit trail
+//!     run.lock                   advisory lock held for as long as a `run` process is alive
 //! ```
 //!
 //! `status` is its own file so `pause`/`resume`/`stop` from another process never race
 //! with the supervisor rewriting metadata every tick.
+//!
+//! `run.lock` is the source of truth for "is this instance running". The status file can
+//! be stale after a crash or `kill -9`, but the operating system releases the lock when
+//! the process dies, so a free lock means nobody is running the instance.
 
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::Write;
 use std::path::PathBuf;
+use std::thread::sleep;
+use std::time::Duration;
 
 use crate::adapter::Account;
 use crate::engine::Pending;
@@ -104,6 +111,12 @@ impl Instance {
             last_error: m.get("last_error").cloned().unwrap_or_default(),
         })
     }
+}
+
+/// Exclusive hold on an instance. Released when dropped, or by the OS if the process dies.
+#[derive(Debug)]
+pub struct InstanceLock {
+    _file: File,
 }
 
 impl Store {
@@ -279,6 +292,52 @@ impl Store {
         }
     }
 
+    // ---- instance lock ------------------------------------------------------------------
+
+    /// Try to take the exclusive lock once. `Ok(None)` means another process holds it.
+    pub fn lock_instance(&self, name: &str) -> Result<Option<InstanceLock>, String> {
+        let dir = self.instance_dir(name)?;
+        fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        let path = dir.join("run.lock");
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(InstanceLock { _file: file })),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(e)) => Err(format!("cannot lock {}: {e}", path.display())),
+        }
+    }
+
+    /// Like `lock_instance` but retries briefly, so a momentary status probe (`ps`) by
+    /// another process is not mistaken for a running instance.
+    pub fn lock_instance_retry(&self, name: &str) -> Result<Option<InstanceLock>, String> {
+        for attempt in 0..6 {
+            if let Some(lock) = self.lock_instance(name)? {
+                return Ok(Some(lock));
+            }
+            if attempt < 5 {
+                sleep(Duration::from_millis(25));
+            }
+        }
+        Ok(None)
+    }
+
+    /// True while some process holds the instance lock (i.e. a `run` is alive).
+    /// Never creates files; an instance that never ran is simply "not running".
+    pub fn is_running(&self, name: &str) -> bool {
+        let Ok(dir) = self.instance_dir(name) else {
+            return false;
+        };
+        let Ok(file) = File::open(dir.join("run.lock")) else {
+            return false;
+        };
+        matches!(file.try_lock_shared(), Err(TryLockError::WouldBlock))
+    }
+
     // ---- command inbox (approve / reject / act sent to a live instance) -------------
 
     pub fn push_command(&self, name: &str, line: &str) -> Result<(), String> {
@@ -441,6 +500,48 @@ mod tests {
         assert!(!s.kill_switch());
         s.set_kill_switch(false).unwrap();
         let _ = fs::remove_dir_all(&s.home);
+    }
+
+    #[test]
+    fn lock_is_exclusive_and_released_on_drop() {
+        let s = temp_store("lock");
+        s.create(&meta("l")).unwrap();
+        assert!(!s.is_running("l"), "nobody holds it yet");
+        let first = s.lock_instance("l").unwrap().expect("first lock succeeds");
+        assert!(s.is_running("l"));
+        assert!(
+            s.lock_instance("l").unwrap().is_none(),
+            "second lock is refused"
+        );
+        assert!(s.lock_instance_retry("l").unwrap().is_none());
+        drop(first);
+        assert!(!s.is_running("l"), "released on drop");
+        assert!(s.lock_instance("l").unwrap().is_some());
+        let _ = fs::remove_dir_all(&s.home);
+    }
+
+    #[test]
+    fn is_running_does_not_create_anything_or_block_others() {
+        let s = temp_store("probe");
+        assert!(!s.is_running("never-ran"));
+        assert!(
+            !s.home.join("instances").exists(),
+            "probe must not create directories"
+        );
+        s.create(&meta("p")).unwrap();
+        // many probes in a row never make a real lock attempt fail
+        for _ in 0..20 {
+            assert!(!s.is_running("p"));
+            assert!(s.lock_instance("p").unwrap().is_some());
+        }
+        let _ = fs::remove_dir_all(&s.home);
+    }
+
+    #[test]
+    fn lock_rejects_unsafe_names() {
+        let s = temp_store("lock-names");
+        assert!(s.lock_instance("../x").is_err());
+        assert!(!s.is_running("../x"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! SHA-256 via the audited `sha2` crate (replaces the earlier hand-written version).
+//! SHA-256 via the RustCrypto `sha2` crate (replaces the earlier hand-written version).
 //! The API is unchanged so `hash.rs` and existing verification pins keep working.
 
 use sha2::{Digest, Sha256 as Inner};

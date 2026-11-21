@@ -23,6 +23,9 @@ max_amount_per_action = "0"
 max_total_exposure = "0"
 min_health_factor = "1.5"
 tick_timeout_ms = "2000"
+# Optional memory cap in MiB for this strategy process. Leave unset for Java: the JVM reserves
+# far more address space than it uses and will not start under a tight limit.
+# max_memory_mb = "512"
 
 [params]
 "#;

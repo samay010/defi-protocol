@@ -5,8 +5,14 @@
 //! State is carried by the engine (`STATE` in, `SETSTATE` out), which makes restart after a
 //! crash trivial and keeps strategies stateless processes.
 //!
-//! IMPORTANT: this provides a timeout, an output-size cap, a cleared environment and no
-//! key material. It is NOT an OS sandbox: a malicious strategy process can still read user
+//! Limits applied to every strategy process:
+//! - wall-clock timeout; on expiry the whole process *group* is killed, so background
+//!   children the strategy forked do not survive it (unix),
+//! - a CPU-time limit (`ulimit -t`, the timeout rounded up plus one second),
+//! - an optional address-space limit (`ulimit -v`, manifest `max_memory_mb`),
+//! - an output-size cap, a cleared environment and no key material.
+//!
+//! IMPORTANT: this is NOT an OS sandbox. A malicious strategy process can still read user
 //! files and use the network as the user. See `docs/security.md`.
 
 use std::io::{self, Read, Write};
@@ -30,7 +36,88 @@ pub struct ExternalStrategy {
     args: Vec<String>,
     dir: PathBuf,
     timeout: Duration,
+    memory_limit_mb: u64,
 }
+
+/// CPU-seconds limit for one tick: the wall-clock timeout rounded up, plus one second.
+fn cpu_limit_secs(timeout: Duration) -> u64 {
+    timeout.as_secs() + 1 + u64::from(timeout.subsec_nanos() > 0)
+}
+
+/// Resolve the program to run. Paths must exist; bare names are looked up only in the fixed
+/// `SAFE_PATH` (the strategy's own environment is empty, so the user's PATH is not used).
+fn locate_program(program: &Path) -> Result<PathBuf, String> {
+    if program.to_string_lossy().contains('/') {
+        return if program.is_file() {
+            Ok(program.to_path_buf())
+        } else {
+            Err(format!(
+                "cannot start '{}': no such file",
+                program.display()
+            ))
+        };
+    }
+    for dir in SAFE_PATH.split(':') {
+        let candidate = Path::new(dir).join(program);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "cannot start '{}': not found in {SAFE_PATH}",
+        program.display()
+    ))
+}
+
+#[cfg(unix)]
+fn wrapper_script(cpu_secs: u64, memory_mb: u64) -> String {
+    // The CPU limit is best effort (it is skipped if the user's hard limit is already lower).
+    // A memory limit was explicitly requested in the manifest, so failing to apply it is fatal.
+    let mut s = format!("ulimit -t {cpu_secs} 2>/dev/null || true\n");
+    if memory_mb > 0 {
+        s.push_str(&format!(
+            "ulimit -v {} || {{ echo 'protocol: cannot apply the requested memory limit' >&2; exit 125; }}\n",
+            memory_mb * 1024
+        ));
+    }
+    s.push_str("exec \"$0\" \"$@\"\n");
+    s
+}
+
+#[cfg(unix)]
+fn base_command(program: &Path, args: &[String], cpu_secs: u64, memory_mb: u64) -> Command {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = Command::new("/bin/sh");
+    cmd.arg("-c")
+        .arg(wrapper_script(cpu_secs, memory_mb))
+        .arg(program)
+        .args(args);
+    // Own process group, so a timeout can kill the strategy and everything it spawned.
+    cmd.process_group(0);
+    cmd
+}
+
+#[cfg(not(unix))]
+fn base_command(program: &Path, args: &[String], _cpu_secs: u64, _memory_mb: u64) -> Command {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    cmd
+}
+
+/// Kill every process in the group led by `pid` (unix only; best effort, no-op elsewhere).
+#[cfg(unix)]
+fn kill_group(pid: u32) {
+    let _ = Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!("kill -KILL -{pid} 2>/dev/null"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+#[cfg(not(unix))]
+fn kill_group(_pid: u32) {}
 
 impl ExternalStrategy {
     pub fn from_manifest(m: &Manifest, dir: &Path) -> Result<ExternalStrategy, String> {
@@ -53,20 +140,27 @@ impl ExternalStrategy {
             args: parts.map(|s| s.to_string()).collect(),
             dir,
             timeout: Duration::from_millis(m.tick_timeout_ms),
+            memory_limit_mb: m.max_memory_mb,
         })
     }
 
     fn run_process(&self, input: &str) -> Result<String, String> {
-        let mut child = Command::new(&self.program)
-            .args(&self.args)
-            .current_dir(&self.dir)
-            .env_clear()
-            .env("PATH", SAFE_PATH)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("cannot start '{}': {e}", self.program.display()))?;
+        let program = locate_program(&self.program)?;
+        let mut child = base_command(
+            &program,
+            &self.args,
+            cpu_limit_secs(self.timeout),
+            self.memory_limit_mb,
+        )
+        .current_dir(&self.dir)
+        .env_clear()
+        .env("PATH", SAFE_PATH)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot start '{}': {e}", self.program.display()))?;
+        let pid = child.id();
 
         let mut stdin = child.stdin.take().ok_or("no stdin")?;
         let data = input.to_string();
@@ -101,6 +195,9 @@ impl ExternalStrategy {
                 Ok(Some(s)) => break s,
                 Ok(None) => {
                     if start.elapsed() >= self.timeout {
+                        // Group kill first, while the leader is still unreaped so the group id
+                        // cannot have been reused; then make sure the leader itself is gone.
+                        kill_group(pid);
                         let _ = child.kill();
                         let _ = child.wait();
                         return Err(format!(
@@ -115,9 +212,14 @@ impl ExternalStrategy {
         };
 
         let grace = Duration::from_millis(500);
-        let out = rx_out
-            .recv_timeout(grace)
-            .map_err(|_| "strategy left its output pipe open after exiting".to_string())?;
+        let out = match rx_out.recv_timeout(grace) {
+            Ok(o) => o,
+            Err(_) => {
+                // A descendant is still holding the pipe open: clean it up.
+                kill_group(pid);
+                return Err("strategy left its output pipe open after exiting".to_string());
+            }
+        };
         let err_text = rx_err.recv_timeout(grace).unwrap_or_default();
 
         if !status.success() {
@@ -341,12 +443,21 @@ mod tests {
     }
 
     fn script_dir(tag: &str, script: &str, timeout_ms: u64) -> (PathBuf, Manifest) {
+        script_dir_with(tag, script, timeout_ms, "")
+    }
+
+    fn script_dir_with(
+        tag: &str,
+        script: &str,
+        timeout_ms: u64,
+        extra: &str,
+    ) -> (PathBuf, Manifest) {
         let d = std::env::temp_dir().join(format!("proto-ext-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         fs::write(d.join("strategy.sh"), script).unwrap();
         let m = Manifest::parse(&format!(
-            "name=\"sh-strategy\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"sh strategy.sh\"\nprotocols=\"aave\"\ntick_timeout_ms=\"{timeout_ms}\"\n"
+            "name=\"sh-strategy\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"sh strategy.sh\"\nprotocols=\"aave\"\ntick_timeout_ms=\"{timeout_ms}\"\n{extra}\n"
         ))
         .unwrap();
         (d, m)
@@ -429,6 +540,128 @@ mod tests {
         .unwrap();
         let mut s = ExternalStrategy::from_manifest(&m, &d).unwrap();
         assert!(tick(&mut s).unwrap_err().contains("cannot start"));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn bare_program_names_must_exist_in_the_safe_path() {
+        let d = std::env::temp_dir().join(format!("proto-ext-bare-{}", std::process::id()));
+        fs::create_dir_all(&d).unwrap();
+        let m = Manifest::parse(
+            "name=\"x\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"definitely-not-a-real-program\"\nprotocols=\"aave\"\n",
+        )
+        .unwrap();
+        let mut s = ExternalStrategy::from_manifest(&m, &d).unwrap();
+        let err = tick(&mut s).unwrap_err();
+        assert!(
+            err.contains("cannot start") && err.contains("not found"),
+            "{err}"
+        );
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn cpu_limit_rounds_the_timeout_up_plus_one() {
+        assert_eq!(cpu_limit_secs(Duration::from_millis(2000)), 3);
+        assert_eq!(cpu_limit_secs(Duration::from_millis(150)), 2);
+        assert_eq!(cpu_limit_secs(Duration::from_millis(2001)), 4);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wrapper_script_applies_the_requested_limits() {
+        let plain = wrapper_script(3, 0);
+        assert!(plain.contains("ulimit -t 3") && !plain.contains("ulimit -v"));
+        assert!(plain.ends_with("exec \"$0\" \"$@\"\n"));
+        let limited = wrapper_script(3, 256);
+        assert!(limited.contains("ulimit -v 262144"));
+        assert!(
+            limited.contains("exit 125"),
+            "an explicitly requested limit fails closed"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn limits_are_really_set_in_the_strategy_process() {
+        let script = "echo \"LOG cpu=$(ulimit -t) mem=$(ulimit -v)\"\necho DONE\n";
+        let (d, m) = script_dir("limits-default", script, 2000);
+        let out = tick(&mut ExternalStrategy::from_manifest(&m, &d).unwrap()).unwrap();
+        assert_eq!(
+            out.logs,
+            vec!["cpu=3 mem=unlimited"],
+            "CPU limit by default, memory only when asked"
+        );
+        let (d2, m2) = script_dir_with("limits-mem", script, 2000, "max_memory_mb = \"256\"");
+        let out2 = tick(&mut ExternalStrategy::from_manifest(&m2, &d2).unwrap()).unwrap();
+        assert_eq!(out2.logs, vec!["cpu=3 mem=262144"]);
+        let _ = fs::remove_dir_all(&d);
+        let _ = fs::remove_dir_all(&d2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn memory_limit_stops_a_greedy_python_strategy() {
+        let have_python = Command::new("sh")
+            .arg("-c")
+            .arg("command -v python3")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !have_python {
+            eprintln!("skipping: python3 not installed");
+            return;
+        }
+        let greedy = "python3 - <<'PY'\nx = bytearray(900 * 1024 * 1024)\nprint('DONE')\nPY\n";
+        let (d, m) = script_dir_with("mem-greedy", greedy, 5000, "max_memory_mb = \"256\"");
+        let err = tick(&mut ExternalStrategy::from_manifest(&m, &d).unwrap()).unwrap_err();
+        assert!(
+            err.contains("MemoryError") || err.contains("exited with"),
+            "{err}"
+        );
+        // a well-behaved python strategy still works under the same limit
+        let polite = "python3 - <<'PY'\nprint('LOG polite')\nprint('DONE')\nPY\n";
+        let (d2, m2) = script_dir_with("mem-polite", polite, 5000, "max_memory_mb = \"256\"");
+        let out = tick(&mut ExternalStrategy::from_manifest(&m2, &d2).unwrap()).unwrap();
+        assert_eq!(out.logs, vec!["polite"]);
+        let _ = fs::remove_dir_all(&d);
+        let _ = fs::remove_dir_all(&d2);
+    }
+
+    /// Linux only: process state letter from /proc, or None if the process is gone.
+    #[cfg(target_os = "linux")]
+    fn proc_state(pid: u32) -> Option<char> {
+        let text = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        text.rsplit_once(')')?.1.trim().chars().next()
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn timeout_kills_background_children_too() {
+        // the strategy forks a background sleeper, records its pid, then hangs
+        let script = "sleep 30 &\necho $! > bg.pid\nsleep 30\n";
+        let (d, m) = script_dir("group-kill", script, 600);
+        let err = tick(&mut ExternalStrategy::from_manifest(&m, &d).unwrap()).unwrap_err();
+        assert!(err.contains("timed out"), "{err}");
+        let pid: u32 = fs::read_to_string(d.join("bg.pid"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let mut dead = false;
+        for _ in 0..300 {
+            // gone, or a zombie waiting to be reaped by init, both mean it is not running
+            if matches!(proc_state(pid), None | Some('Z')) {
+                dead = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            dead,
+            "background child {pid} survived the timeout (state {:?})",
+            proc_state(pid)
+        );
         let _ = fs::remove_dir_all(&d);
     }
 

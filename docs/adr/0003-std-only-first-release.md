@@ -1,6 +1,6 @@
 # 0003: Standard library only in the first release
 
-**Status:** Accepted
+**Status:** Accepted. The hand-written SHA-256 part is superseded by ADR 0009 (`sha2` crate); the rest still stands.
 
 **Context.** The brief says not to add dependencies without understanding their purpose. The first
 release needs only: argument parsing, a small config format, SHA-256, file persistence, child
