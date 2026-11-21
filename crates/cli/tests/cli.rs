@@ -8,7 +8,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 fn unique(tag: &str) -> PathBuf {
     static N: AtomicU64 = AtomicU64::new(0);
     let n = N.fetch_add(1, Ordering::SeqCst);
-    let p = std::env::temp_dir().join(format!("proto-cli-{tag}-{}-{n}", std::process::id()));
+    // Under the build's own tmp dir, not /tmp: bubblewrap mounts its own tmpfs on /tmp, and a
+    // strategy directory inside /tmp may not be bindable into the sandbox.
+    let p = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("proto-cli-{tag}-{}-{n}", std::process::id()));
     let _ = fs::remove_dir_all(&p);
     fs::create_dir_all(&p).unwrap();
     p
@@ -1103,8 +1106,11 @@ fn external_strategies_are_sandboxed_by_default_or_refused() {
     let c = Cli::new("sandbox-default");
     let dir = c.script_strategy("boxed", "", "echo DONE\n");
     let r = c.run_with(&[], &["simulate", &dir, "--ticks", "1"]);
+    // CI sets this on Linux so a sandbox that cannot start is a failure, not a quiet skip.
+    let strict = std::env::var("PROTOCOL_REQUIRE_SANDBOX_TESTS").is_ok_and(|v| !v.is_empty());
     match r.code {
         0 => assert!(r.out.contains("sandbox: on"), "{}", r.out),
+        1 if strict => panic!("sandbox required by CI but unavailable: {}", r.err),
         1 => assert!(
             r.err.contains("sandbox") && r.err.contains("--sandbox off"),
             "must fail closed with a hint: {}",

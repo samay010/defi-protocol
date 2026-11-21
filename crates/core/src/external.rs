@@ -492,7 +492,14 @@ mod tests {
         timeout_ms: u64,
         extra: &str,
     ) -> (PathBuf, Manifest) {
-        let d = std::env::temp_dir().join(format!("proto-ext-{tag}-{}", std::process::id()));
+        // Under the build directory, not /tmp: bubblewrap mounts its own tmpfs on /tmp, and a
+        // strategy directory inside /tmp may not be bindable into the sandbox.
+        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-tmp");
+        fs::create_dir_all(&base).unwrap();
+        let d = base
+            .canonicalize()
+            .unwrap()
+            .join(format!("proto-ext-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         fs::write(d.join("strategy.sh"), script).unwrap();
@@ -714,7 +721,10 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn sandboxed(m: &Manifest, d: &Path) -> Option<ExternalStrategy> {
         use crate::sandbox::SandboxMode;
+        // CI sets this on Linux so a sandbox that cannot start fails the build instead of skipping.
+        let strict = std::env::var("PROTOCOL_REQUIRE_SANDBOX_TESTS").is_ok_and(|v| !v.is_empty());
         if crate::sandbox::find_bwrap().is_none() {
+            assert!(!strict, "sandbox required by CI but bwrap is not installed");
             eprintln!("skipping: bubblewrap not installed");
             return None;
         }
@@ -724,6 +734,7 @@ mod tests {
         {
             Ok(s) => Some(s),
             Err(e) => {
+                assert!(!strict, "sandbox required by CI but cannot start: {e}");
                 eprintln!("skipping: sandbox cannot start here: {e}");
                 None
             }

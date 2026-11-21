@@ -57,6 +57,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+# Keeps this strategy a standalone project even when its folder sits inside another Cargo
+# workspace (for example a checkout of this repository).
+[workspace]
 "#;
 
 const RUST_MAIN: &str = r#"use std::io::{self, BufRead};
