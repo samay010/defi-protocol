@@ -499,16 +499,34 @@ fn live_pause_resume_and_stop_on_a_running_instance() {
     wait_for("running", &|| status(&c).contains("running"));
 
     assert!(c.ok(&["pause", "rate-monitor"]).contains("paused"));
-    std::thread::sleep(std::time::Duration::from_millis(80));
-    let tick_a = c.ok(&["inspect", "rate-monitor"]);
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    let tick_b = c.ok(&["inspect", "rate-monitor"]);
     let tick_of = |s: &str| {
         s.lines()
             .find(|l| l.starts_with("tick:"))
             .unwrap()
             .to_string()
     };
+    // A tick that was already running when `pause` arrived may still finish and persist (several
+    // fsyncs, which can be slow on a busy disk). Wait until the tick counter has settled, then
+    // check that it really stays put.
+    let mut last = tick_of(&c.ok(&["inspect", "rate-monitor"]));
+    let mut stable = 0;
+    for _ in 0..200 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let now = tick_of(&c.ok(&["inspect", "rate-monitor"]));
+        if now == last {
+            stable += 1;
+            if stable >= 10 {
+                break;
+            }
+        } else {
+            stable = 0;
+            last = now;
+        }
+    }
+    assert!(stable >= 10, "tick counter never settled after pause");
+    let tick_a = c.ok(&["inspect", "rate-monitor"]);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let tick_b = c.ok(&["inspect", "rate-monitor"]);
     assert_eq!(tick_of(&tick_a), tick_of(&tick_b), "no ticks while paused");
     assert!(tick_a.contains("status:     paused"));
 
