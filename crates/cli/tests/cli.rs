@@ -87,12 +87,13 @@ const SUPPLIER_MANIFEST: &str =
 #[test]
 fn help_version_and_usage_errors() {
     let c = Cli::new("basic");
-    assert!(c.ok(&["help"]).contains("USAGE"));
-    assert!(c.ok(&[]).contains("USAGE"));
+    assert!(c.ok(&["help"]).contains("Usage"));
+    assert!(c.ok(&[]).contains("Usage"));
     assert!(c.ok(&["version"]).contains("simulation-only"));
     let r = c.run(&["frobnicate"]);
     assert_eq!(r.code, 2);
-    assert!(r.err.contains("unknown command"));
+    assert!(r.err.contains("frobnicate"));
+    assert!(c.ok(&["--version"]).contains("protocol"));
     assert_eq!(c.run(&["run"]).code, 2, "missing strategy is a usage error");
     assert_eq!(c.run(&["test", "stable-lending", "--ticks", "abc"]).code, 2);
     assert_eq!(c.run(&["test", "stable-lending", "--bogus"]).code, 2);

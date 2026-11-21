@@ -23,51 +23,14 @@ use protocol_core::store::{Instance, Store};
 use protocol_core::supervisor::{self, RunConfig};
 use protocol_core::types::{Action, ActionKind, Mode, Network, Scenario, Status};
 
-use args::Args;
+use args::{Cli, Cmd, StrategiesCmd};
+use clap::{CommandFactory, Parser};
 use resolve::{make_strategy, resolve, Resolved, Source, Tier};
 
 macro_rules! outln {
     ($w:expr) => {{ let _ = writeln!($w); }};
     ($w:expr, $($a:tt)*) => {{ let _ = writeln!($w, $($a)*); }};
 }
-
-pub const HELP: &str = "\
-protocol: DeFi strategy execution protocol (simulation-only release)
-
-USAGE
-  protocol [--home DIR] <command> [options]
-
-EXPLORE
-  strategies list                       list official and local strategies
-  strategies info <name|dir>            permissions, parameters, trust tier, docs
-
-DEVELOP
-  create <name> --lang <rust|c|cpp|python|java> [--dir DIR]
-                                        scaffold a strategy (default DIR: ./custom-strategies)
-  build <name|dir>                      compile / check a strategy
-  test <name|dir> [--ticks N]           run in the calm and stress scenarios (default 12 ticks)
-  simulate <name|dir> [--ticks N] [--scenario calm|stress] [--mode autonomous|approval|manual]
-  verify <dir> [--pin]                  content hash; --pin records it as reviewed
-
-RUN
-  run <name|dir> [--mode approval|autonomous|manual] [--ticks N] [--interval-ms MS]
-                 [--scenario calm|stress] [--instance NAME] [--max-failures N]
-                                        run continuously (N=0: until stopped); default mode approval
-  ps                                    list instances
-  inspect <instance>                    state, account, pending actions, recent audit log
-  pause|resume|stop <instance>
-  pending <instance>                    actions waiting for approval
-  approve <instance> <id>               approve a queued action
-  reject <instance> <id>
-  act <instance> --kind supply|withdraw|repay --asset A --amount X
-                                        request a manual action (risk-checked like any other)
-  kill-switch on|off|status             emergency stop for all fund-moving actions
-
-  version | help
-
-All execution is simulated. Testnet and mainnet are not available in this release.
-Amounts are decimal token amounts (e.g. 100.5). State lives in --home, $PROTOCOL_HOME or ~/.protocol.
-";
 
 enum E {
     Usage(String),
@@ -88,11 +51,6 @@ impl From<&str> for E {
 
 type R = Result<i32, E>;
 
-/// Leftover `--options` are the user's mistake, so they are usage errors (exit 2).
-fn fin(args: Args) -> Result<Vec<String>, E> {
-    args.finish().map_err(E::Usage)
-}
-
 fn usage<T>(m: &str) -> Result<T, E> {
     Err(E::Usage(m.to_string()))
 }
@@ -112,28 +70,29 @@ pub fn default_home() -> PathBuf {
 }
 
 pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    if argv.iter().any(|a| a == "--help" || a == "-h") {
-        let _ = write!(out, "{HELP}");
-        return 0;
-    }
-    let mut args = Args::new(argv);
-    let home = match args.take_flag("--home") {
-        Ok(Some(h)) => PathBuf::from(h),
-        Ok(None) => default_home(),
+    let cli = match Cli::try_parse_from(
+        std::iter::once("protocol".to_string()).chain(argv.iter().cloned()),
+    ) {
+        Ok(c) => c,
         Err(e) => {
-            outln!(err, "error: {e}");
-            return 2;
+            // help and --version print to stdout with exit 0; real usage errors go to stderr, exit 2
+            if e.use_stderr() {
+                let _ = write!(err, "{e}");
+                return 2;
+            }
+            let _ = write!(out, "{e}");
+            return 0;
         }
     };
-    let store = Store::new(home);
-    let Some(cmd) = args.pop() else {
-        let _ = write!(out, "{HELP}");
+    let store = Store::new(cli.home.clone().unwrap_or_else(default_home));
+    let Some(cmd) = cli.cmd else {
+        let _ = write!(out, "{}", Cli::command().render_help());
         return 0;
     };
-    match dispatch(&cmd, args, &store, out) {
+    match dispatch(cmd, &store, out) {
         Ok(code) => code,
         Err(E::Usage(m)) => {
-            outln!(err, "error: {m}\n(see `protocol help`)");
+            outln!(err, "error: {m}\n(see `protocol --help`)");
             2
         }
         Err(E::Fail(m)) => {
@@ -143,13 +102,9 @@ pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     }
 }
 
-fn dispatch(cmd: &str, args: Args, store: &Store, out: &mut dyn Write) -> R {
+fn dispatch(cmd: Cmd, store: &Store, out: &mut dyn Write) -> R {
     match cmd {
-        "help" => {
-            let _ = write!(out, "{HELP}");
-            Ok(0)
-        }
-        "version" | "--version" => {
+        Cmd::Version => {
             outln!(
                 out,
                 "protocol {} (simulation-only)",
@@ -157,62 +112,91 @@ fn dispatch(cmd: &str, args: Args, store: &Store, out: &mut dyn Write) -> R {
             );
             Ok(0)
         }
-        "strategies" => cmd_strategies(args, store, out),
-        "create" => cmd_create(args, out),
-        "build" => cmd_build(args, store, out),
-        "test" => cmd_test(args, store, out),
-        "simulate" => cmd_simulate(args, store, out),
-        "verify" => cmd_verify(args, store, out),
-        "run" => cmd_run(args, store, out),
-        "ps" => cmd_ps(args, store, out),
-        "inspect" => cmd_inspect(args, store, out),
-        "pause" => cmd_control(args, store, out, Control::Pause),
-        "resume" => cmd_control(args, store, out, Control::Resume),
-        "stop" => cmd_control(args, store, out, Control::Stop),
-        "pending" => cmd_pending(args, store, out),
-        "approve" => cmd_approve_reject(args, store, out, "approve"),
-        "reject" => cmd_approve_reject(args, store, out, "reject"),
-        "act" => cmd_act(args, store, out),
-        "kill-switch" => cmd_kill_switch(args, store, out),
-        other => usage(&format!("unknown command '{other}'")),
+        Cmd::Strategies(sub) => cmd_strategies(sub, store, out),
+        Cmd::Create { name, lang, dir } => cmd_create(name, lang, dir, out),
+        Cmd::Build { strategy } => cmd_build(strategy, store, out),
+        Cmd::Test { strategy, ticks } => cmd_test(strategy, ticks, store, out),
+        Cmd::Simulate {
+            strategy,
+            ticks,
+            scenario,
+            mode,
+        } => cmd_simulate(strategy, ticks, scenario, mode, store, out),
+        Cmd::Verify { dir, pin } => cmd_verify(dir, pin, store, out),
+        Cmd::Run {
+            strategy,
+            mode,
+            network,
+            scenario,
+            ticks,
+            interval_ms,
+            max_failures,
+            instance,
+        } => cmd_run(
+            RunArgs {
+                strategy,
+                mode,
+                network,
+                scenario,
+                ticks,
+                interval_ms,
+                max_failures,
+                instance,
+            },
+            store,
+            out,
+        ),
+        Cmd::Ps => cmd_ps(store, out),
+        Cmd::Inspect { instance } => cmd_inspect(instance, store, out),
+        Cmd::Pause { instance } => cmd_control(instance, store, out, Control::Pause),
+        Cmd::Resume { instance } => cmd_control(instance, store, out, Control::Resume),
+        Cmd::Stop { instance } => cmd_control(instance, store, out, Control::Stop),
+        Cmd::Pending { instance } => cmd_pending(instance, store, out),
+        Cmd::Approve { instance, id } => {
+            send_command(store, &instance, &format!("approve {id}"), out)
+        }
+        Cmd::Reject { instance, id } => {
+            send_command(store, &instance, &format!("reject {id}"), out)
+        }
+        Cmd::Act {
+            instance,
+            kind,
+            asset,
+            amount,
+            protocol,
+        } => cmd_act(instance, kind, asset, amount, protocol, store, out),
+        Cmd::KillSwitch { which } => cmd_kill_switch(which, store, out),
     }
+}
+
+struct RunArgs {
+    strategy: String,
+    mode: Option<String>,
+    network: Option<String>,
+    scenario: Option<String>,
+    ticks: u64,
+    interval_ms: u64,
+    max_failures: u32,
+    instance: Option<String>,
 }
 
 // ---- small helpers ---------------------------------------------------------------------
 
-fn one_positional(args: Args, what: &str) -> Result<String, E> {
-    let rest = fin(args)?;
-    match rest.as_slice() {
-        [one] => Ok(one.clone()),
-        [] => usage(&format!("missing argument: {what}")),
-        _ => usage(&format!("too many arguments (expected: {what})")),
-    }
-}
-
-fn flag_u64(args: &mut Args, name: &str, default: u64) -> Result<u64, E> {
-    match args.take_flag(name)? {
+fn parse_mode(v: Option<&str>, default: Mode) -> Result<Mode, E> {
+    match v {
         None => Ok(default),
-        Some(v) => v
-            .parse()
-            .or_else(|_| usage(&format!("{name} must be a whole number, got '{v}'"))),
-    }
-}
-
-fn flag_mode(args: &mut Args, default: Mode) -> Result<Mode, E> {
-    match args.take_flag("--mode")? {
-        None => Ok(default),
-        Some(v) => Mode::parse(&v).map_or_else(
+        Some(v) => Mode::parse(v).map_or_else(
             || usage("--mode must be autonomous, approval or manual"),
             Ok,
         ),
     }
 }
 
-fn flag_scenario(args: &mut Args) -> Result<Scenario, E> {
-    match args.take_flag("--scenario")? {
+fn parse_scenario(v: Option<&str>) -> Result<Scenario, E> {
+    match v {
         None => Ok(Scenario::Calm),
         Some(v) => {
-            Scenario::parse(&v).map_or_else(|| usage("--scenario must be calm or stress"), Ok)
+            Scenario::parse(v).map_or_else(|| usage("--scenario must be calm or stress"), Ok)
         }
     }
 }
@@ -350,16 +334,9 @@ fn simulate_core(
 
 // ---- commands -------------------------------------------------------------------------------
 
-fn cmd_strategies(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let Some(sub) = args.pop() else {
-        return usage("strategies needs a subcommand: list | info <name>");
-    };
-    match sub.as_str() {
-        "list" => {
-            let rest = fin(args)?;
-            if !rest.is_empty() {
-                return usage("strategies list takes no arguments");
-            }
+fn cmd_strategies(sub: StrategiesCmd, store: &Store, out: &mut dyn Write) -> R {
+    match sub {
+        StrategiesCmd::List => {
             outln!(out, "Official strategies (built in, simulation only):");
             for name in protocol_strategies::BUILTIN_NAMES {
                 let m = protocol_strategies::manifest(name).expect("built-in manifest");
@@ -403,8 +380,7 @@ fn cmd_strategies(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
             }
             Ok(0)
         }
-        "info" => {
-            let name = one_positional(args, "strategy name or directory")?;
+        StrategiesCmd::Info { strategy: name } => {
             let r = resolve(store, &name)?;
             let m = &r.manifest;
             outln!(out, "{} {} [{}]", m.name, m.version, r.tier.label());
@@ -434,12 +410,11 @@ fn cmd_strategies(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
             }
             Ok(0)
         }
-        other => usage(&format!("unknown strategies subcommand '{other}'")),
     }
 }
 
-fn cmd_create(mut args: Args, out: &mut dyn Write) -> R {
-    let Some(lang_s) = args.take_flag("--lang")? else {
+fn cmd_create(name: String, lang: Option<String>, dir: Option<PathBuf>, out: &mut dyn Write) -> R {
+    let Some(lang_s) = lang else {
         return usage("--lang is required (rust, c, cpp, python, java)");
     };
     let Some(lang) = Language::parse(&lang_s) else {
@@ -447,11 +422,7 @@ fn cmd_create(mut args: Args, out: &mut dyn Write) -> R {
             "unknown language '{lang_s}' (rust, c, cpp, python, java)"
         ));
     };
-    let base = args
-        .take_flag("--dir")?
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("custom-strategies"));
-    let name = one_positional(args, "strategy name")?;
+    let base = dir.unwrap_or_else(|| PathBuf::from("custom-strategies"));
     if !valid_name(&name) {
         return Err(E::Fail(format!(
             "invalid name '{name}': lowercase letters, digits, '-' or '_', starting with a letter"
@@ -482,8 +453,7 @@ fn cmd_create(mut args: Args, out: &mut dyn Write) -> R {
     Ok(0)
 }
 
-fn cmd_build(args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let name = one_positional(args, "strategy name or directory")?;
+fn cmd_build(name: String, store: &Store, out: &mut dyn Write) -> R {
     let r = resolve(store, &name)?;
     let Source::External(dir) = &r.source else {
         outln!(
@@ -525,9 +495,7 @@ fn cmd_build(args: Args, store: &Store, out: &mut dyn Write) -> R {
     Ok(0)
 }
 
-fn cmd_test(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let ticks = flag_u64(&mut args, "--ticks", 12)?;
-    let name = one_positional(args, "strategy name or directory")?;
+fn cmd_test(name: String, ticks: u64, store: &Store, out: &mut dyn Write) -> R {
     if ticks == 0 {
         return usage("--ticks must be at least 1");
     }
@@ -587,11 +555,16 @@ fn cmd_test(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
     Ok(if failed { 1 } else { 0 })
 }
 
-fn cmd_simulate(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let ticks = flag_u64(&mut args, "--ticks", 10)?;
-    let scenario = flag_scenario(&mut args)?;
-    let mode = flag_mode(&mut args, Mode::Autonomous)?;
-    let name = one_positional(args, "strategy name or directory")?;
+fn cmd_simulate(
+    name: String,
+    ticks: u64,
+    scenario: Option<String>,
+    mode: Option<String>,
+    store: &Store,
+    out: &mut dyn Write,
+) -> R {
+    let scenario = parse_scenario(scenario.as_deref())?;
+    let mode = parse_mode(mode.as_deref(), Mode::Autonomous)?;
     let r = resolve(store, &name)?;
     outln!(
         out,
@@ -629,9 +602,7 @@ fn cmd_simulate(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
     Ok(if s.errors.is_empty() { 0 } else { 1 })
 }
 
-fn cmd_verify(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let pin = args.take_switch("--pin");
-    let name = one_positional(args, "strategy directory")?;
+fn cmd_verify(name: String, pin: bool, store: &Store, out: &mut dyn Write) -> R {
     let r = resolve(store, &name)?;
     if matches!(r.source, Source::Builtin) {
         outln!(out, "'{}' is an official built-in strategy; it is part of the project source and needs no pin.", r.manifest.name);
@@ -660,21 +631,19 @@ fn cmd_verify(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
     Ok(0)
 }
 
-fn cmd_run(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let mode = flag_mode(&mut args, Mode::Approval)?;
-    let network = match args.take_flag("--network")? {
+fn cmd_run(a: RunArgs, store: &Store, out: &mut dyn Write) -> R {
+    let mode = parse_mode(a.mode.as_deref(), Mode::Approval)?;
+    let network = match a.network {
         None => Network::Simulation,
         Some(v) => Network::parse(&v).map_or_else(
             || usage("--network must be simulation, testnet or mainnet"),
             Ok,
         )?,
     };
-    let scenario = flag_scenario(&mut args)?;
-    let ticks = flag_u64(&mut args, "--ticks", 10)?;
-    let interval_ms = flag_u64(&mut args, "--interval-ms", 500)?;
-    let max_failures = flag_u64(&mut args, "--max-failures", 3)? as u32;
-    let instance = args.take_flag("--instance")?;
-    let reference = one_positional(args, "strategy name or directory")?;
+    let scenario = parse_scenario(a.scenario.as_deref())?;
+    let (ticks, interval_ms, max_failures) = (a.ticks, a.interval_ms, a.max_failures);
+    let instance = a.instance;
+    let reference = a.strategy;
 
     match network {
         Network::Simulation => {}
@@ -780,11 +749,7 @@ fn cmd_run(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
     Ok(if status == Status::Failed { 1 } else { 0 })
 }
 
-fn cmd_ps(args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let rest = fin(args)?;
-    if !rest.is_empty() {
-        return usage("ps takes no arguments");
-    }
+fn cmd_ps(store: &Store, out: &mut dyn Write) -> R {
     let names = store.list();
     if names.is_empty() {
         outln!(out, "no instances. Start one with: protocol run <strategy>");
@@ -843,8 +808,7 @@ fn display_status(store: &Store, name: &str) -> String {
     }
 }
 
-fn cmd_inspect(args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let name = one_positional(args, "instance name")?;
+fn cmd_inspect(name: String, store: &Store, out: &mut dyn Write) -> R {
     let meta = store.load_meta(&name)?;
     outln!(out, "instance:   {name}");
     outln!(out, "strategy:   {}", meta.strategy_ref);
@@ -922,8 +886,7 @@ enum Control {
     Stop,
 }
 
-fn cmd_control(args: Args, store: &Store, out: &mut dyn Write, what: Control) -> R {
-    let name = one_positional(args, "instance name")?;
+fn cmd_control(name: String, store: &Store, out: &mut dyn Write, what: Control) -> R {
     let meta = store.load_meta(&name)?;
     let current = store.read_status(&name);
     let (target, event) = match what {
@@ -985,8 +948,7 @@ fn cmd_control(args: Args, store: &Store, out: &mut dyn Write, what: Control) ->
     Ok(0)
 }
 
-fn cmd_pending(args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let name = one_positional(args, "instance name")?;
+fn cmd_pending(name: String, store: &Store, out: &mut dyn Write) -> R {
     store.load_meta(&name)?;
     let pending = store.load_pending(&name)?;
     if pending.is_empty() {
@@ -1041,21 +1003,15 @@ fn send_command(store: &Store, name: &str, line: &str, out: &mut dyn Write) -> R
     Ok(0)
 }
 
-fn cmd_approve_reject(args: Args, store: &Store, out: &mut dyn Write, verb: &str) -> R {
-    let rest = fin(args)?;
-    let [name, id] = rest.as_slice() else {
-        return usage(&format!("usage: protocol {verb} <instance> <id>"));
-    };
-    let id: u64 = id.parse().or_else(|_| usage("<id> must be a number"))?;
-    send_command(store, name, &format!("{verb} {id}"), out)
-}
-
-fn cmd_act(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let kind_s = args.take_flag("--kind")?;
-    let asset = args.take_flag("--asset")?;
-    let amount_s = args.take_flag("--amount")?;
-    let protocol = args.take_flag("--protocol")?;
-    let name = one_positional(args, "instance name")?;
+fn cmd_act(
+    name: String,
+    kind_s: Option<String>,
+    asset: Option<String>,
+    amount_s: Option<String>,
+    protocol: Option<String>,
+    store: &Store,
+    out: &mut dyn Write,
+) -> R {
     let (Some(kind_s), Some(asset), Some(amount_s)) = (kind_s, asset, amount_s) else {
         return usage("act needs --kind, --asset and --amount");
     };
@@ -1076,8 +1032,7 @@ fn cmd_act(mut args: Args, store: &Store, out: &mut dyn Write) -> R {
     send_command(store, &name, &format!("act {}", action.to_line()), out)
 }
 
-fn cmd_kill_switch(args: Args, store: &Store, out: &mut dyn Write) -> R {
-    let which = one_positional(args, "on | off | status")?;
+fn cmd_kill_switch(which: String, store: &Store, out: &mut dyn Write) -> R {
     match which.as_str() {
         "on" => {
             store.set_kill_switch(true)?;

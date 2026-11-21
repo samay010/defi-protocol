@@ -1,7 +1,7 @@
 # CLI reference
 
 `protocol [--home DIR] <command> [options]`. Exit codes: `0` success, `1` failure (including
-failed tests or a failed instance), `2` usage error. `protocol help` prints the same summary.
+failed tests or a failed instance), `2` usage error. `protocol help` (or `--help` on any command) prints the generated help. Argument parsing uses `clap` (see ADR 0010).
 Command names follow the brief's illustrative list; this is the first CLI design and may change
 before 1.0.
 

@@ -1,76 +1,142 @@
-//! Minimal argument handling (std-only). Flags are `--name value` or `--switch`.
+//! Command-line definition, parsed by `clap`. Enum-like options stay `String` here and are
+//! validated by the command handlers, so their error messages and exit codes (2 = usage) are
+//! unchanged from the hand-written parser.
 
-pub struct Args {
-    items: Vec<String>,
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "protocol",
+    version,
+    about = "DeFi strategy execution protocol (simulation-only release)",
+    after_help = "All execution is simulated. Testnet and mainnet are not available in this release.\n\
+Amounts are decimal token amounts (e.g. 100.5). State lives in --home, $PROTOCOL_HOME or ~/.protocol."
+)]
+pub struct Cli {
+    /// State directory (default: $PROTOCOL_HOME or ~/.protocol)
+    #[arg(long, global = true, value_name = "DIR")]
+    pub home: Option<PathBuf>,
+
+    #[command(subcommand)]
+    pub cmd: Option<Cmd>,
 }
 
-impl Args {
-    pub fn new(v: &[String]) -> Args {
-        Args { items: v.to_vec() }
-    }
-
-    /// Remove `--name value` and return the value.
-    pub fn take_flag(&mut self, name: &str) -> Result<Option<String>, String> {
-        if let Some(i) = self.items.iter().position(|a| a == name) {
-            if i + 1 >= self.items.len() {
-                return Err(format!("{name} requires a value"));
-            }
-            let v = self.items.remove(i + 1);
-            self.items.remove(i);
-            Ok(Some(v))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub fn take_switch(&mut self, name: &str) -> bool {
-        if let Some(i) = self.items.iter().position(|a| a == name) {
-            self.items.remove(i);
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn pop(&mut self) -> Option<String> {
-        if self.items.is_empty() {
-            None
-        } else {
-            Some(self.items.remove(0))
-        }
-    }
-
-    /// Remaining positionals; errors if an unrecognised `--option` is left over.
-    pub fn finish(self) -> Result<Vec<String>, String> {
-        if let Some(bad) = self.items.iter().find(|a| a.starts_with("--")) {
-            return Err(format!("unknown option '{bad}'"));
-        }
-        Ok(self.items)
-    }
+#[derive(Subcommand, Debug)]
+pub enum Cmd {
+    /// List or describe official and local strategies
+    #[command(subcommand)]
+    Strategies(StrategiesCmd),
+    /// Scaffold a new strategy
+    Create {
+        /// Strategy name (lowercase letters, digits, '-' or '_')
+        name: String,
+        /// rust, c, cpp, python or java
+        #[arg(long)]
+        lang: Option<String>,
+        /// Parent directory (default: ./custom-strategies)
+        #[arg(long, value_name = "DIR")]
+        dir: Option<PathBuf>,
+    },
+    /// Compile or check a strategy
+    Build {
+        /// Strategy name or directory
+        strategy: String,
+    },
+    /// Run a strategy in the calm and stress scenarios
+    Test {
+        strategy: String,
+        #[arg(long, default_value_t = 12)]
+        ticks: u64,
+    },
+    /// Simulate a strategy without saving anything
+    Simulate {
+        strategy: String,
+        #[arg(long, default_value_t = 10)]
+        ticks: u64,
+        /// calm or stress
+        #[arg(long)]
+        scenario: Option<String>,
+        /// autonomous, approval or manual (default: autonomous)
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// Show a strategy's content hash; --pin records it as reviewed
+    Verify {
+        /// Strategy directory
+        dir: String,
+        #[arg(long)]
+        pin: bool,
+    },
+    /// Run a strategy continuously (ticks = 0: until stopped)
+    Run {
+        strategy: String,
+        /// approval (default), autonomous or manual
+        #[arg(long)]
+        mode: Option<String>,
+        /// simulation (default); testnet and mainnet are refused in this release
+        #[arg(long)]
+        network: Option<String>,
+        /// calm or stress
+        #[arg(long)]
+        scenario: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        ticks: u64,
+        #[arg(long, default_value_t = 500)]
+        interval_ms: u64,
+        #[arg(long, default_value_t = 3)]
+        max_failures: u32,
+        /// Instance name (default: the strategy name)
+        #[arg(long)]
+        instance: Option<String>,
+    },
+    /// List instances
+    Ps,
+    /// Show state, account, pending actions and recent audit log
+    Inspect { instance: String },
+    /// Pause a running instance
+    Pause { instance: String },
+    /// Resume a paused instance
+    Resume { instance: String },
+    /// Stop an instance
+    Stop { instance: String },
+    /// List actions waiting for approval
+    Pending { instance: String },
+    /// Approve a queued action
+    Approve { instance: String, id: u64 },
+    /// Reject a queued action
+    Reject { instance: String, id: u64 },
+    /// Request a manual action (risk-checked like any other)
+    Act {
+        instance: String,
+        /// supply, withdraw or repay
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        asset: Option<String>,
+        /// Decimal amount, e.g. 100.5
+        #[arg(long)]
+        amount: Option<String>,
+        #[arg(long)]
+        protocol: Option<String>,
+    },
+    /// Emergency stop for all fund-moving actions: on, off or status
+    KillSwitch {
+        /// on | off | status
+        which: String,
+    },
+    /// Print the version
+    Version,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn a(v: &[&str]) -> Args {
-        Args::new(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>())
-    }
-
-    #[test]
-    fn flags_switches_and_positionals() {
-        let mut x = a(&["--ticks", "5", "name", "--pin", "other"]);
-        assert_eq!(x.take_flag("--ticks").unwrap(), Some("5".to_string()));
-        assert!(x.take_switch("--pin"));
-        assert!(!x.take_switch("--pin"));
-        assert_eq!(x.take_flag("--mode").unwrap(), None);
-        assert_eq!(x.pop(), Some("name".to_string()));
-        assert_eq!(x.finish().unwrap(), vec!["other"]);
-    }
-
-    #[test]
-    fn missing_value_and_unknown_option() {
-        assert!(a(&["--ticks"]).take_flag("--ticks").is_err());
-        assert!(a(&["--oops", "x"]).finish().unwrap_err().contains("--oops"));
-    }
+#[derive(Subcommand, Debug)]
+pub enum StrategiesCmd {
+    /// List official and local strategies
+    List,
+    /// Permissions, parameters, trust tier and docs
+    Info {
+        /// Strategy name or directory
+        strategy: String,
+    },
 }
