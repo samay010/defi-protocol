@@ -3,9 +3,9 @@ version = "0.1.0"
 language = "rust"
 entry = "builtin:rate-monitor"
 description = "Tracks supply APYs and alerts when a market moves by at least a configured number of basis points. Read-only."
-protocols = "aave"
-allowed_actions = "alert"
-tick_timeout_ms = "2000"
+protocols = ["aave"]
+allowed_actions = ["alert"]
+tick_timeout_ms = 2000
 
 [params]
 min_change_bps = "25"

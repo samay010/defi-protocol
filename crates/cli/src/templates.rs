@@ -13,19 +13,19 @@ version = "0.1.0"
 language = "__LANG__"
 entry = "__ENTRY__"
 description = "Describe what this strategy does."
-protocols = "aave"
-assets = "USDC"
+protocols = ["aave"]
+assets = ["USDC"]
 # Least privilege: alert-only by default. To let the strategy propose fund movements, add
-# e.g. allowed_actions = "supply,alert" together with real caps below. Every proposal is still
+# e.g. allowed_actions = ["supply", "alert"] together with real caps below. Every proposal is still
 # checked by the risk engine against exactly what you declare here.
-allowed_actions = "alert"
+allowed_actions = ["alert"]
 max_amount_per_action = "0"
 max_total_exposure = "0"
-min_health_factor = "1.5"
-tick_timeout_ms = "2000"
+min_health_factor = 1.5
+tick_timeout_ms = 2000
 # Optional memory cap in MiB for this strategy process. Leave unset for Java: the JVM reserves
 # far more address space than it uses and will not start under a tight limit.
-# max_memory_mb = "512"
+# max_memory_mb = 512
 
 [params]
 "#;

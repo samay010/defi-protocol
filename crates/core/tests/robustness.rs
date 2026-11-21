@@ -184,21 +184,21 @@ version = "0.1.0"
 language = "python"
 entry = "python3 strategy.py"
 description = "demo"
-protocols = "aave"
-assets = "usdc, dai"
-allowed_actions = "supply, alert"
+protocols = ["aave"]
+assets = ["usdc", "dai"]
+allowed_actions = ["supply", "alert"]
 max_amount_per_action = "100"
 max_total_exposure = "500.5"
-min_health_factor = "1.8"
-tick_timeout_ms = "1500"
-max_memory_mb = "256"
+min_health_factor = 1.8
+tick_timeout_ms = 1500
+max_memory_mb = 256
 
 [params]
 threshold = "42"
 "#;
     let seeds: Vec<&[u8]> = vec![
         base.as_bytes(),
-        b"name=\"x\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"./b\"\nprotocols=\"aave\"\n",
+        b"name=\"x\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"./b\"\nprotocols=[\"aave\"]\n",
     ];
     let mut rng = Rng::new(0xBADC0DE);
     let mut accepted = 0;

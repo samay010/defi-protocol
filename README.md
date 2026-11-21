@@ -20,7 +20,7 @@ nothing is collected from users, so no on-chain component is needed (see
 ## Quick start
 
 ```bash
-cargo build --release            # needs Rust 1.89+; one dependency (sha2), see ADR 0009
+cargo build --release            # needs Rust 1.89+; direct dependencies: sha2, clap, serde, toml (ADRs 0009-0011)
 export PATH="$PWD/target/release:$PATH"
 
 protocol strategies list
@@ -91,5 +91,5 @@ See [docs/roadmap.md](docs/roadmap.md).
 ## Tests
 
 ```bash
-cargo test            # 145 tests: unit + end-to-end CLI, including real toolchains
+cargo test            # 143 tests: unit + end-to-end CLI, including real toolchains
 ```

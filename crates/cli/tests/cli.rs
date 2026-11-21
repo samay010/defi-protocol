@@ -62,7 +62,7 @@ impl Cli {
         fs::write(
             d.join("strategy.toml"),
             format!(
-                "name = \"{name}\"\nversion = \"1.0.0\"\nlanguage = \"c\"\nentry = \"sh strategy.sh\"\nprotocols = \"aave\"\n{manifest_extra}\n"
+                "name = \"{name}\"\nversion = \"1.0.0\"\nlanguage = \"c\"\nentry = \"sh strategy.sh\"\nprotocols = [\"aave\"]\n{manifest_extra}\n"
             ),
         )
         .unwrap();
@@ -80,7 +80,7 @@ impl Drop for Cli {
 
 const SUPPLIER: &str = "cat >/dev/null\necho 'PROPOSE supply aave USDC 50000000 test'\necho DONE\n";
 const SUPPLIER_MANIFEST: &str =
-    "assets = \"USDC\"\nallowed_actions = \"supply,alert\"\nmax_amount_per_action = \"100\"\nmax_total_exposure = \"120\"\n";
+    "assets = [\"USDC\"]\nallowed_actions = [\"supply\", \"alert\"]\nmax_amount_per_action = \"100\"\nmax_total_exposure = \"120\"\n";
 
 // ---- basics ---------------------------------------------------------------------------------
 
@@ -716,7 +716,7 @@ fn official_names_cannot_be_shadowed() {
     fs::create_dir_all(&d).unwrap();
     fs::write(
         d.join("strategy.toml"),
-        "name = \"stable-lending\"\nversion = \"9\"\nlanguage = \"c\"\nentry = \"sh x.sh\"\nprotocols = \"aave\"\n",
+        "name = \"stable-lending\"\nversion = \"9\"\nlanguage = \"c\"\nentry = \"sh x.sh\"\nprotocols = [\"aave\"]\n",
     )
     .unwrap();
     let r = c.run(&["strategies", "info", &d.to_string_lossy()]);
@@ -733,11 +733,11 @@ fn invalid_manifest_gives_a_clear_error() {
     let c = Cli::new("badmanifest");
     let d = c.work.join("bad");
     fs::create_dir_all(&d).unwrap();
-    fs::write(d.join("strategy.toml"), "name = \"bad\"\nversion = \"1\"\nlanguage = \"c\"\nentry = \"e\"\nprotocols = \"aave\"\nallowed_actoins = \"supply\"\n").unwrap();
+    fs::write(d.join("strategy.toml"), "name = \"bad\"\nversion = \"1\"\nlanguage = \"c\"\nentry = \"e\"\nprotocols = [\"aave\"]\nallowed_actoins = \"supply\"\n").unwrap();
     let r = c.run(&["simulate", &d.to_string_lossy()]);
     assert_eq!(r.code, 1);
     assert!(
-        r.err.contains("unknown manifest key 'allowed_actoins'"),
+        r.err.contains("unknown field `allowed_actoins`"),
         "{}",
         r.err
     );
@@ -837,7 +837,7 @@ fn failing_external_strategy_is_restarted_then_marked_failed() {
 #[test]
 fn slow_external_strategy_times_out_without_hanging_the_cli() {
     let c = Cli::new("ext-slow");
-    let dir = c.script_strategy("sleepy", "tick_timeout_ms = \"150\"\n", "exec sleep 10\n");
+    let dir = c.script_strategy("sleepy", "tick_timeout_ms = 150\n", "exec sleep 10\n");
     let started = std::time::Instant::now();
     let r = c.run(&[
         "run",

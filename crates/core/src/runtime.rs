@@ -107,7 +107,7 @@ mod tests {
 
     fn manifest() -> Manifest {
         Manifest::parse(
-            "name=\"t\"\nversion=\"1\"\nlanguage=\"rust\"\nentry=\"builtin:t\"\nprotocols=\"aave\"\n",
+            "name=\"t\"\nversion=\"1\"\nlanguage=\"rust\"\nentry=\"builtin:t\"\nprotocols=[\"aave\"]\n",
         )
         .unwrap()
     }

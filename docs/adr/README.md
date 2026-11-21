@@ -14,3 +14,5 @@ Status values: Accepted, Proposed, Superseded.
 | 0007 | Strategy verification by pinned content hash | Accepted |
 | 0008 | Instance lock and process limits | Accepted |
 | 0009 | `sha2` crate for SHA-256 | Accepted |
+| 0010 | `clap` for argument parsing | Accepted |
+| 0011 | `serde` + `toml` for strategy manifests | Accepted |

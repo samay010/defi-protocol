@@ -17,3 +17,5 @@ cryptography on real keys must use audited libraries.
 
 **Revisit** when adding networking (HTTP/RPC client), full TOML/JSON, or signing. Each dependency
 gets its own ADR entry stating purpose and alternatives.
+
+**Status update.** Partly superseded: `sha2` (ADR 0009), `clap` (ADR 0010) and `serde` + `toml` (ADR 0011) replaced the hand-written hash, argument parser and manifest parser.

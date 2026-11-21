@@ -55,18 +55,23 @@ version = "0.1.0"
 language = "python"             # rust | c | cpp | python | java
 entry = "python3 strategy.py"   # program + args, run inside the strategy directory
 description = "What it does"
-protocols = "aave"
-assets = "USDC,DAI"
-allowed_actions = "supply,alert"   # default: alert only
-max_amount_per_action = "100"      # whole tokens; default 0
-max_total_exposure = "500"         # cumulative per instance; default 0
-min_health_factor = "1.5"          # withdrawals that would go below this are denied
-tick_timeout_ms = "2000"
-max_memory_mb = "256"              # optional; omit for no limit (and always omit for Java)
+protocols = ["aave"]
+assets = ["USDC", "DAI"]
+allowed_actions = ["supply", "alert"]   # default: alert only
+max_amount_per_action = 100        # tokens; default 0. Use "100.5" (a string) for decimals
+max_total_exposure = 500           # cumulative per instance; default 0
+min_health_factor = 1.5          # withdrawals that would go below this are denied
+tick_timeout_ms = 2000
+max_memory_mb = 256              # optional; omit for no limit (and always omit for Java)
 
 [params]
 my_threshold = "42"                # delivered as PARAM lines
 ```
+
+The manifest is real TOML. Lists are arrays. Amounts are whole numbers or quoted decimal strings, never
+floats (money must not pass through floating point). `tick_timeout_ms` and `max_memory_mb` are integers,
+`min_health_factor` is a number. Unknown keys, duplicate keys and wrong types are errors. `[params]`
+values may be strings, numbers or booleans and are delivered as text.
 
 Declaring a fund-moving action requires `assets` and a non-zero `max_amount_per_action`.
 
@@ -84,7 +89,7 @@ fixed by the CLI (not read from the manifest):
 | Java | `java -cp build Strategy` | `javac -d build Strategy.java` |
 
 Minimal Python example that supplies 50 USDC when APY is high (needs
-`allowed_actions = "supply,alert"`, `assets = "USDC"`, and caps in the manifest):
+`allowed_actions = ["supply", "alert"]`, `assets = ["USDC"]`, and caps in the manifest):
 
 ```python
 import sys

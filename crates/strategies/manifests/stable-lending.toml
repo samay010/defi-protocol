@@ -3,13 +3,13 @@ version = "0.1.0"
 language = "rust"
 entry = "builtin:stable-lending"
 description = "Supplies idle stablecoins to the best-yielding market above a minimum APY (simulation only)."
-protocols = "aave"
-assets = "USDC,DAI"
-allowed_actions = "supply,alert"
+protocols = ["aave"]
+assets = ["USDC", "DAI"]
+allowed_actions = ["supply", "alert"]
 max_amount_per_action = "100"
 max_total_exposure = "500"
-min_health_factor = "1.5"
-tick_timeout_ms = "2000"
+min_health_factor = 1.5
+tick_timeout_ms = 2000
 
 [params]
 min_apy_bps = "300"

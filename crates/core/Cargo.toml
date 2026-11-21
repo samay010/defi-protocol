@@ -7,4 +7,6 @@ publish.workspace = true
 description = "Core engine: manifests, risk engine, execution engine, supervisor, external-strategy runtime"
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.11.1"
+toml = "1.2.2"

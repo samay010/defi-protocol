@@ -462,7 +462,7 @@ mod tests {
         fs::create_dir_all(&d).unwrap();
         fs::write(d.join("strategy.sh"), script).unwrap();
         let m = Manifest::parse(&format!(
-            "name=\"sh-strategy\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"sh strategy.sh\"\nprotocols=\"aave\"\ntick_timeout_ms=\"{timeout_ms}\"\n{extra}\n"
+            "name=\"sh-strategy\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"sh strategy.sh\"\nprotocols=[\"aave\"]\ntick_timeout_ms={timeout_ms}\n{extra}\n"
         ))
         .unwrap();
         (d, m)
@@ -540,7 +540,7 @@ mod tests {
         let d = std::env::temp_dir().join(format!("proto-ext-missing-{}", std::process::id()));
         fs::create_dir_all(&d).unwrap();
         let m = Manifest::parse(
-            "name=\"x\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"./build/nope\"\nprotocols=\"aave\"\n",
+            "name=\"x\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"./build/nope\"\nprotocols=[\"aave\"]\n",
         )
         .unwrap();
         let mut s = ExternalStrategy::from_manifest(&m, &d).unwrap();
@@ -553,7 +553,7 @@ mod tests {
         let d = std::env::temp_dir().join(format!("proto-ext-bare-{}", std::process::id()));
         fs::create_dir_all(&d).unwrap();
         let m = Manifest::parse(
-            "name=\"x\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"definitely-not-a-real-program\"\nprotocols=\"aave\"\n",
+            "name=\"x\"\nversion=\"1\"\nlanguage=\"c\"\nentry=\"definitely-not-a-real-program\"\nprotocols=[\"aave\"]\n",
         )
         .unwrap();
         let mut s = ExternalStrategy::from_manifest(&m, &d).unwrap();
@@ -597,7 +597,7 @@ mod tests {
             vec!["cpu=3 mem=unlimited"],
             "CPU limit by default, memory only when asked"
         );
-        let (d2, m2) = script_dir_with("limits-mem", script, 2000, "max_memory_mb = \"256\"");
+        let (d2, m2) = script_dir_with("limits-mem", script, 2000, "max_memory_mb = 256");
         let out2 = tick(&mut ExternalStrategy::from_manifest(&m2, &d2).unwrap()).unwrap();
         assert_eq!(out2.logs, vec!["cpu=3 mem=262144"]);
         let _ = fs::remove_dir_all(&d);
@@ -618,7 +618,7 @@ mod tests {
             return;
         }
         let greedy = "python3 - <<'PY'\nx = bytearray(900 * 1024 * 1024)\nprint('DONE')\nPY\n";
-        let (d, m) = script_dir_with("mem-greedy", greedy, 5000, "max_memory_mb = \"256\"");
+        let (d, m) = script_dir_with("mem-greedy", greedy, 5000, "max_memory_mb = 256");
         let err = tick(&mut ExternalStrategy::from_manifest(&m, &d).unwrap()).unwrap_err();
         assert!(
             err.contains("MemoryError") || err.contains("exited with"),
@@ -626,7 +626,7 @@ mod tests {
         );
         // a well-behaved python strategy still works under the same limit
         let polite = "python3 - <<'PY'\nprint('LOG polite')\nprint('DONE')\nPY\n";
-        let (d2, m2) = script_dir_with("mem-polite", polite, 5000, "max_memory_mb = \"256\"");
+        let (d2, m2) = script_dir_with("mem-polite", polite, 5000, "max_memory_mb = 256");
         let out = tick(&mut ExternalStrategy::from_manifest(&m2, &d2).unwrap()).unwrap();
         assert_eq!(out.logs, vec!["polite"]);
         let _ = fs::remove_dir_all(&d);

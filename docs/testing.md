@@ -1,7 +1,7 @@
 # Testing
 
 ```bash
-cargo test                 # everything (145 tests)
+cargo test                 # everything (143 tests)
 cargo test -p protocol-core
 cargo test -p protocol-cli --test cli      # end-to-end CLI tests
 ```
