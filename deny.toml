@@ -3,12 +3,14 @@
 yanked = "deny"
 
 [licenses]
-allow = ["Apache-2.0", "MIT", "Unicode-3.0", "Unicode-DFS-2016", "BSD-3-Clause", "ISC", "Zlib"]
+# only licenses actually present are listed; add one when a new dependency needs it
+allow = ["Apache-2.0", "MIT"]
 confidence-threshold = 0.8
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+allow-wildcard-paths = true   # workspace path deps (crates are publish = false)
 
 [sources]
 unknown-registry = "deny"
