@@ -19,6 +19,7 @@ use protocol_core::amount::{format_amount, parse_amount};
 use protocol_core::engine::{Engine, Outcome};
 use protocol_core::manifest::{valid_name, Language};
 use protocol_core::runtime::step;
+use protocol_core::sandbox::SandboxMode;
 use protocol_core::store::{Instance, Store};
 use protocol_core::supervisor::{self, RunConfig};
 use protocol_core::types::{Action, ActionKind, Mode, Network, Scenario, Status};
@@ -89,7 +90,14 @@ pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         let _ = write!(out, "{}", Cli::command().render_help());
         return 0;
     };
-    match dispatch(cmd, &store, out) {
+    let Some(sandbox) = SandboxMode::parse(&cli.sandbox) else {
+        outln!(
+            err,
+            "error: --sandbox must be require or off\n(see `protocol --help`)"
+        );
+        return 2;
+    };
+    match dispatch(cmd, sandbox, &store, out) {
         Ok(code) => code,
         Err(E::Usage(m)) => {
             outln!(err, "error: {m}\n(see `protocol --help`)");
@@ -102,7 +110,7 @@ pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     }
 }
 
-fn dispatch(cmd: Cmd, store: &Store, out: &mut dyn Write) -> R {
+fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) -> R {
     match cmd {
         Cmd::Version => {
             outln!(
@@ -115,13 +123,13 @@ fn dispatch(cmd: Cmd, store: &Store, out: &mut dyn Write) -> R {
         Cmd::Strategies(sub) => cmd_strategies(sub, store, out),
         Cmd::Create { name, lang, dir } => cmd_create(name, lang, dir, out),
         Cmd::Build { strategy } => cmd_build(strategy, store, out),
-        Cmd::Test { strategy, ticks } => cmd_test(strategy, ticks, store, out),
+        Cmd::Test { strategy, ticks } => cmd_test(strategy, ticks, sandbox, store, out),
         Cmd::Simulate {
             strategy,
             ticks,
             scenario,
             mode,
-        } => cmd_simulate(strategy, ticks, scenario, mode, store, out),
+        } => cmd_simulate(strategy, ticks, scenario, mode, sandbox, store, out),
         Cmd::Verify { dir, pin } => cmd_verify(dir, pin, store, out),
         Cmd::Run {
             strategy,
@@ -143,6 +151,7 @@ fn dispatch(cmd: Cmd, store: &Store, out: &mut dyn Write) -> R {
                 max_failures,
                 instance,
             },
+            sandbox,
             store,
             out,
         ),
@@ -221,10 +230,25 @@ fn print_trust_banner(res: &Resolved, out: &mut dyn Write) {
             );
             outln!(
                 out,
-                "  In this release strategy processes are NOT sandboxed: they run with your user's"
+                "  Read the source before running it (see docs/security.md)."
             );
-            outln!(out, "  file and network access. Read the source before running it (see docs/security.md).");
         }
+    }
+}
+
+fn print_sandbox_line(res: &Resolved, sandbox: SandboxMode, out: &mut dyn Write) {
+    if !matches!(res.source, Source::External(_)) {
+        return;
+    }
+    match sandbox {
+        SandboxMode::Require => outln!(
+            out,
+            "sandbox: on (no network, no access to your files, read-only system; needs bubblewrap)"
+        ),
+        SandboxMode::Off => outln!(
+            out,
+            "sandbox: OFF. This strategy runs with your user's full file and network access."
+        ),
     }
 }
 
@@ -294,9 +318,10 @@ fn simulate_core(
     scenario: Scenario,
     mode: Mode,
     ticks: u64,
+    sandbox: SandboxMode,
     emit: &mut dyn FnMut(&str),
 ) -> Result<SimResult, String> {
-    let mut strategy = make_strategy(res)?;
+    let mut strategy = make_strategy(res, sandbox)?;
     let adapter = Box::new(AaveSim::new(scenario, AaveSim::demo_account()));
     let mut engine = Engine::new(adapter, res.manifest.policy(), mode, Network::Simulation);
     let mut state = BTreeMap::new();
@@ -495,7 +520,13 @@ fn cmd_build(name: String, store: &Store, out: &mut dyn Write) -> R {
     Ok(0)
 }
 
-fn cmd_test(name: String, ticks: u64, store: &Store, out: &mut dyn Write) -> R {
+fn cmd_test(
+    name: String,
+    ticks: u64,
+    sandbox: SandboxMode,
+    store: &Store,
+    out: &mut dyn Write,
+) -> R {
     if ticks == 0 {
         return usage("--ticks must be at least 1");
     }
@@ -508,7 +539,7 @@ fn cmd_test(name: String, ticks: u64, store: &Store, out: &mut dyn Write) -> R {
     );
     let mut failed = false;
     for scenario in [Scenario::Calm, Scenario::Stress] {
-        match simulate_core(&r, scenario, Mode::Autonomous, ticks, &mut |_| {}) {
+        match simulate_core(&r, scenario, Mode::Autonomous, ticks, sandbox, &mut |_| {}) {
             Err(e) => {
                 outln!(out, "  [{scenario}] FAIL: cannot run strategy: {e}");
                 failed = true;
@@ -560,6 +591,7 @@ fn cmd_simulate(
     ticks: u64,
     scenario: Option<String>,
     mode: Option<String>,
+    sandbox: SandboxMode,
     store: &Store,
     out: &mut dyn Write,
 ) -> R {
@@ -572,7 +604,10 @@ fn cmd_simulate(
         r.manifest.name
     );
     print_trust_banner(&r, out);
-    let s = simulate_core(&r, scenario, mode, ticks, &mut |l| outln!(out, "{l}"))?;
+    print_sandbox_line(&r, sandbox, out);
+    let s = simulate_core(&r, scenario, mode, ticks, sandbox, &mut |l| {
+        outln!(out, "{l}")
+    })?;
     outln!(
         out,
         "\nsummary: {} executed, {} queued, {} suggested, {} alerts, {} denied, {} errors",
@@ -631,7 +666,7 @@ fn cmd_verify(name: String, pin: bool, store: &Store, out: &mut dyn Write) -> R 
     Ok(0)
 }
 
-fn cmd_run(a: RunArgs, store: &Store, out: &mut dyn Write) -> R {
+fn cmd_run(a: RunArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) -> R {
     let mode = parse_mode(a.mode.as_deref(), Mode::Approval)?;
     let network = match a.network {
         None => Network::Simulation,
@@ -669,6 +704,7 @@ fn cmd_run(a: RunArgs, store: &Store, out: &mut dyn Write) -> R {
         res.tier.label()
     );
     print_trust_banner(&res, out);
+    print_sandbox_line(&res, sandbox, out);
     outln!(out, "permissions (enforced by the risk engine):");
     print_permissions(&res, out);
 
@@ -708,7 +744,7 @@ fn cmd_run(a: RunArgs, store: &Store, out: &mut dyn Write) -> R {
     };
 
     let mut engine = build_engine(store, &meta, &res)?;
-    let factory = || make_strategy(&res);
+    let factory = || make_strategy(&res, sandbox);
     let cfg = RunConfig {
         ticks,
         interval: Duration::from_millis(interval_ms),

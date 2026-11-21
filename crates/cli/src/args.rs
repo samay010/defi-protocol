@@ -19,6 +19,11 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "DIR")]
     pub home: Option<PathBuf>,
 
+    /// require (default): run external strategies in an OS sandbox (no network, no access to your
+    /// files). off: run them with your user's full access.
+    #[arg(long, global = true, value_name = "MODE", default_value = "require")]
+    pub sandbox: String,
+
     #[command(subcommand)]
     pub cmd: Option<Cmd>,
 }

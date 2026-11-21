@@ -34,7 +34,13 @@ impl Cli {
     }
 
     fn run(&self, args: &[&str]) -> Out {
+        // Most tests exercise strategy logic, not isolation; the sandbox has its own tests below.
+        self.run_with(&["--sandbox", "off"], args)
+    }
+
+    fn run_with(&self, pre: &[&str], args: &[&str]) -> Out {
         let mut argv: Vec<String> = vec!["--home".into(), self.home.to_string_lossy().to_string()];
+        argv.extend(pre.iter().map(|s| s.to_string()));
         argv.extend(args.iter().map(|s| s.to_string()));
         let (mut o, mut e) = (Vec::new(), Vec::new());
         let code = protocol_cli::run(&argv, &mut o, &mut e);
@@ -905,7 +911,12 @@ fn state_and_audit_log_are_persisted_on_disk() {
 // ---- instance lock: races and stale status ----------------------------------------------------
 
 fn spawn_run(home: &str, args: &[&str]) -> std::thread::JoinHandle<(i32, String)> {
-    let mut argv: Vec<String> = vec!["--home".into(), home.to_string()];
+    let mut argv: Vec<String> = vec![
+        "--home".into(),
+        home.to_string(),
+        "--sandbox".into(),
+        "off".into(),
+    ];
     argv.extend(args.iter().map(|s| s.to_string()));
     std::thread::spawn(move || {
         let (mut o, mut e) = (Vec::new(), Vec::new());
@@ -1063,7 +1074,46 @@ fn two_runs_starting_at_the_same_instant_cannot_both_win() {
     assert_eq!(loser.0, 1);
     assert!(loser.1.contains("already running"), "{}", loser.1);
 
+    // The lock is taken before the instance files are written, so the refused run can return
+    // while the winner is still setting up. Wait until the winner is really running.
+    wait_until("the winning run to be up", &|| {
+        c.run(&["inspect", "rate-monitor"])
+            .out
+            .contains("status:     running")
+    });
     c.ok(&["stop", "rate-monitor"]);
     let winner = handles.remove(0).join().unwrap();
     assert_eq!(winner.0, 0);
+}
+
+// ---- sandbox ---------------------------------------------------------------------------------
+
+#[test]
+fn sandbox_flag_is_validated_and_builtins_never_need_it() {
+    let c = Cli::new("sandbox-flag");
+    assert_eq!(c.run_with(&["--sandbox", "maybe"], &["ps"]).code, 2);
+    // built-in strategies are in-process: the default (require) works without bubblewrap
+    let r = c.run_with(&[], &["simulate", "rate-monitor", "--ticks", "2"]);
+    assert_eq!(r.code, 0, "{}{}", r.out, r.err);
+    assert!(!r.out.contains("sandbox:"), "no sandbox line for built-ins");
+}
+
+#[test]
+fn external_strategies_are_sandboxed_by_default_or_refused() {
+    let c = Cli::new("sandbox-default");
+    let dir = c.script_strategy("boxed", "", "echo DONE\n");
+    let r = c.run_with(&[], &["simulate", &dir, "--ticks", "1"]);
+    match r.code {
+        0 => assert!(r.out.contains("sandbox: on"), "{}", r.out),
+        1 => assert!(
+            r.err.contains("sandbox") && r.err.contains("--sandbox off"),
+            "must fail closed with a hint: {}",
+            r.err
+        ),
+        other => panic!("unexpected exit {other}: {}{}", r.out, r.err),
+    }
+    // explicit opt-out runs, and says so loudly
+    let off = c.run_with(&["--sandbox", "off"], &["simulate", &dir, "--ticks", "1"]);
+    assert_eq!(off.code, 0, "{}{}", off.out, off.err);
+    assert!(off.out.contains("sandbox: OFF"), "{}", off.out);
 }

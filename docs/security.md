@@ -37,12 +37,18 @@ and operational assessments are complete.
 
 ## What is NOT implemented (read this)
 
-1. **No OS sandbox.** An external strategy is an ordinary child process of the user. The empty
-   environment, timeout and output cap limit *accidents*, not an adversary: a malicious strategy
-   could still read your files, open network connections, or fork background processes as your
-   user. **Do not run strategies you have not read.** The CLI says so for unverified strategies.
-   Planned: WASM/WASI for Rust/C/C++ (no file/network access by default) and container / seccomp /
-   namespace isolation for Python and Java.
+1. **The OS sandbox is Linux-only, depends on `bubblewrap`, and has not been independently
+   reviewed.** By default (`--sandbox require`) an external strategy runs inside `bwrap`: no
+   network, no view of your home or other files (read-only system dirs and its own read-only
+   directory only), private `/tmp`, own PID/IPC/UTS/user namespaces. If `bwrap` is missing or the
+   host forbids user namespaces, the strategy does **not** run (fail closed). `--sandbox off`
+   runs it as an ordinary child process of your user, where a malicious strategy could read your
+   files, use the network, or fork background processes; the CLI prints `sandbox: OFF` then.
+   Not covered: `protocol build` (compilers and build scripts run unsandboxed, because they need
+   network and write access, so read the source before building), macOS/Windows (no sandbox
+   available: use `--sandbox off` knowingly), kernel or `bwrap` vulnerabilities. Strategies can
+   still burn CPU within the limits and, through the line protocol, propose actions (which the
+   risk engine checks). **Do not run strategies you have not read.**
 2. **Resource limits are partial.** Memory is limited only if the manifest sets `max_memory_mb`
    (address space, not resident memory; left off by default because the JVM reserves far more
    address space than it uses and will not start under a tight limit). There are no limits on

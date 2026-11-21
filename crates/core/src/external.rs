@@ -12,8 +12,9 @@
 //! - an optional address-space limit (`ulimit -v`, manifest `max_memory_mb`),
 //! - an output-size cap, a cleared environment and no key material.
 //!
-//! IMPORTANT: this is NOT an OS sandbox. A malicious strategy process can still read user
-//! files and use the network as the user. See `docs/security.md`.
+//! IMPORTANT: the limits above are NOT an OS sandbox. Isolation is the separate `sandbox` module
+//! (bubblewrap, opt out with `--sandbox off`); without it, a malicious strategy process can still read
+//! user files and use the network as the user. See `docs/security.md`.
 
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -37,6 +38,8 @@ pub struct ExternalStrategy {
     dir: PathBuf,
     timeout: Duration,
     memory_limit_mb: u64,
+    /// Path to `bwrap` when the sandbox is on.
+    sandbox: Option<PathBuf>,
 }
 
 /// CPU-seconds limit for one tick: the wall-clock timeout rounded up, plus one second.
@@ -85,9 +88,26 @@ fn wrapper_script(cpu_secs: u64, memory_mb: u64) -> String {
 }
 
 #[cfg(unix)]
-fn base_command(program: &Path, args: &[String], cpu_secs: u64, memory_mb: u64) -> Command {
+fn base_command(
+    program: &Path,
+    args: &[String],
+    cpu_secs: u64,
+    memory_mb: u64,
+    sandbox: Option<(&Path, &Path)>,
+) -> Command {
     use std::os::unix::process::CommandExt;
-    let mut cmd = Command::new("/bin/sh");
+    // With a sandbox: bwrap <isolation options> -- /bin/sh -c <wrapper> <program> <args>.
+    // The limits are applied by the shell *inside* the sandbox, right before exec.
+    let mut cmd = match sandbox {
+        Some((bwrap, dir)) => {
+            let mut c = Command::new(bwrap);
+            c.args(crate::sandbox::bwrap_args(dir))
+                .arg("--")
+                .arg("/bin/sh");
+            c
+        }
+        None => Command::new("/bin/sh"),
+    };
     cmd.arg("-c")
         .arg(wrapper_script(cpu_secs, memory_mb))
         .arg(program)
@@ -98,7 +118,13 @@ fn base_command(program: &Path, args: &[String], cpu_secs: u64, memory_mb: u64) 
 }
 
 #[cfg(not(unix))]
-fn base_command(program: &Path, args: &[String], _cpu_secs: u64, _memory_mb: u64) -> Command {
+fn base_command(
+    program: &Path,
+    args: &[String],
+    _cpu_secs: u64,
+    _memory_mb: u64,
+    _sandbox: Option<(&Path, &Path)>,
+) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args);
     cmd
@@ -141,7 +167,15 @@ impl ExternalStrategy {
             dir,
             timeout: Duration::from_millis(m.tick_timeout_ms),
             memory_limit_mb: m.max_memory_mb,
+            sandbox: None,
         })
+    }
+
+    /// Turn the OS sandbox on or off for this strategy. `Require` fails if `bwrap` is missing
+    /// or cannot start, so a strategy is never silently run unsandboxed.
+    pub fn with_sandbox(mut self, mode: crate::sandbox::SandboxMode) -> Result<Self, String> {
+        self.sandbox = crate::sandbox::prepare(mode, &self.dir)?;
+        Ok(self)
     }
 
     fn run_process(&self, input: &str) -> Result<String, String> {
@@ -151,6 +185,7 @@ impl ExternalStrategy {
             &self.args,
             cpu_limit_secs(self.timeout),
             self.memory_limit_mb,
+            self.sandbox.as_deref().map(|b| (b, self.dir.as_path())),
         )
         .current_dir(&self.dir)
         .env_clear()
@@ -674,5 +709,78 @@ mod tests {
     fn describe_proposal_formats() {
         let a = Action::new(ActionKind::Supply, "aave", "USDC", 2_500_000);
         assert_eq!(describe_proposal(&a), "supply aave USDC 2.5");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn sandboxed(m: &Manifest, d: &Path) -> Option<ExternalStrategy> {
+        use crate::sandbox::SandboxMode;
+        if crate::sandbox::find_bwrap().is_none() {
+            eprintln!("skipping: bubblewrap not installed");
+            return None;
+        }
+        match ExternalStrategy::from_manifest(m, d)
+            .unwrap()
+            .with_sandbox(SandboxMode::Require)
+        {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("skipping: sandbox cannot start here: {e}");
+                None
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandbox_hides_files_network_and_protects_the_strategy_dir() {
+        let secret_dir = std::env::temp_dir().join(format!("proto-secret-{}", std::process::id()));
+        fs::create_dir_all(&secret_dir).unwrap();
+        let secret = secret_dir.join("keys.txt");
+        fs::write(&secret, "not for strategies").unwrap();
+        let script = format!(
+            "if cat {} >/dev/null 2>&1; then echo 'LOG file=leaked'; else echo 'LOG file=hidden'; fi\n\
+             echo \"LOG interfaces=$(grep -c ':' /proc/net/dev)\"\n\
+             if echo x > ./w.txt 2>/dev/null; then echo 'LOG dir=writable'; else echo 'LOG dir=readonly'; fi\n\
+             echo 'LOG home='$(ls /root /home 2>/dev/null | wc -l)\n\
+             echo DONE\n",
+            secret.display()
+        );
+        let (d, m) = script_dir("sandbox-isolation", &script, 3000);
+        let Some(mut s) = sandboxed(&m, &d) else {
+            let _ = fs::remove_dir_all(&secret_dir);
+            return;
+        };
+        let out = tick(&mut s).unwrap();
+        assert_eq!(
+            out.logs,
+            vec!["file=hidden", "interfaces=1", "dir=readonly", "home=0"],
+            "{:?}",
+            out.logs
+        );
+        // the same script without the sandbox can read the file: proves the check is meaningful
+        let mut plain = ExternalStrategy::from_manifest(&m, &d).unwrap();
+        let out = tick(&mut plain).unwrap();
+        assert_eq!(out.logs[0], "file=leaked");
+        let _ = fs::remove_dir_all(&d);
+        let _ = fs::remove_dir_all(&secret_dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandboxed_strategy_still_works_and_limits_and_timeouts_apply() {
+        let ok = "echo \"LOG cpu=$(ulimit -t)\"\necho 'PROPOSE alert aave - 0 hi'\necho DONE\n";
+        let (d, m) = script_dir("sandbox-ok", ok, 2000);
+        let Some(mut s) = sandboxed(&m, &d) else {
+            return;
+        };
+        let out = tick(&mut s).unwrap();
+        assert_eq!(out.logs, vec!["cpu=3"]);
+        assert_eq!(out.proposals.len(), 1);
+        let (d2, m2) = script_dir("sandbox-slow", "sleep 30\n", 500);
+        let mut slow = sandboxed(&m2, &d2).unwrap();
+        let err = tick(&mut slow).unwrap_err();
+        assert!(err.contains("timed out"), "{err}");
+        let _ = fs::remove_dir_all(&d);
+        let _ = fs::remove_dir_all(&d2);
     }
 }

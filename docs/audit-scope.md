@@ -12,14 +12,15 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 3. **Engine -> adapter.** Only the engine calls `execute`, and only after `risk::check`.
 4. **Disk state.** Files under the data directory are trusted only as far as the user owns them.
    Atomic writes; the lock file is the truth for "running".
-5. **Third-party dependency:** `sha2` (hashing for verification pinning).
+5. **Third-party dependencies:** `sha2` (hashing for pinning), `clap` (arguments), `serde` + `toml`
+   (manifest syntax), and the external `bubblewrap` binary (isolation).
 
 ## Modules by sensitivity
 
 | Priority | Module | Why |
 |---|---|---|
 | Critical | `risk.rs`, `engine.rs` | deny-by-default checks, exposure caps, mode and kill-switch rules, re-check at approval |
-| Critical | `external.rs`, `manifest.rs` | parse untrusted input; spawn processes; limits |
+| Critical | `external.rs`, `sandbox.rs`, `manifest.rs` | parse untrusted input; spawn processes; isolation; limits |
 | High | `store.rs`, `supervisor.rs` | locking, kill switch, command inbox, restart logic |
 | High | `hash.rs` + `sha2` | what "verified" is bound to |
 | Medium | `adapter.rs`, adapter-aave | balance math, health factor |
@@ -36,9 +37,10 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 
 ## Known limitations (do not rely on these)
 
-- Process limits are accident containment, not a sandbox. A strategy runs with the user's
-  privileges and can read user files and use the network. Real isolation (OS sandbox/WASM) is on
-  the roadmap.
+- Process limits are accident containment. Isolation comes from `sandbox.rs`, which only builds a
+  `bubblewrap` command line; it is Linux-only and `--sandbox off` removes it. `protocol build`
+  is not sandboxed. A reviewer should check the exposed paths in `bwrap_args` and the fail-closed
+  logic in `prepare`.
 - Unix only.
 - The Aave adapter is a simulation with synthetic data.
 - "Verified" means a named reviewer read that exact source tree. It does not mean safe or profitable.

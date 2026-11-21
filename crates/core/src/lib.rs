@@ -12,6 +12,7 @@ pub mod kv;
 pub mod manifest;
 pub mod risk;
 pub mod runtime;
+pub mod sandbox;
 pub mod sha256;
 pub mod store;
 pub mod strategy;

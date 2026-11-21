@@ -40,14 +40,27 @@ pub fn read_kv_file(path: &Path) -> Result<BTreeMap<String, String>, String> {
 }
 
 /// Write via a temporary file + rename so readers never see a half-written file.
+///
+/// The temporary name is unique per call (process id + a process-wide counter). Two writers to
+/// the same file, in different processes or in different threads of one process, must never
+/// share a temporary file, or one rename would find it already gone.
 pub fn atomic_write(path: &Path, contents: &str) -> Result<(), String> {
-    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
-    let mut f =
-        fs::File::create(&tmp).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    f.write_all(contents.as_bytes())
-        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    f.sync_all().ok();
-    fs::rename(&tmp, path).map_err(|e| format!("cannot replace {}: {e}", path.display()))
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp{}-{n}", std::process::id()));
+    let result = (|| {
+        let mut f =
+            fs::File::create(&tmp).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+        f.write_all(contents.as_bytes())
+            .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+        f.sync_all().ok();
+        fs::rename(&tmp, path).map_err(|e| format!("cannot replace {}: {e}", path.display()))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
 }
 
 pub fn write_kv_file(path: &Path, map: &BTreeMap<String, String>) -> Result<(), String> {
@@ -67,6 +80,30 @@ mod tests {
         let back = parse_kv(&text);
         assert_eq!(back["a"], "1");
         assert_eq!(back["b"], "x=y z");
+    }
+
+    #[test]
+    fn concurrent_writers_to_one_file_never_fail_or_leave_temp_files() {
+        let dir = std::env::temp_dir().join(format!("proto-kv-conc-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("status");
+        let handles: Vec<_> = (0..8)
+            .map(|t| {
+                let target = target.clone();
+                std::thread::spawn(move || {
+                    for i in 0..200 {
+                        atomic_write(&target, &format!("writer {t} round {i}\n")).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert!(fs::read_to_string(&target).unwrap().starts_with("writer "));
+        let leftovers = fs::read_dir(&dir).unwrap().count();
+        assert_eq!(leftovers, 1, "only the target file remains");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

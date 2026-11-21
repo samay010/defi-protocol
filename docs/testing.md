@@ -1,7 +1,7 @@
 # Testing
 
 ```bash
-cargo test                 # everything (143 tests)
+cargo test                 # everything (151 tests)
 cargo test -p protocol-core
 cargo test -p protocol-cli --test cli      # end-to-end CLI tests
 ```
@@ -29,8 +29,8 @@ and skips itself if it is missing. `ulimit` and process-group behaviour is unix 
 ## What passing tests mean
 
 They show the code behaves as specified. They do **not** show that any strategy is profitable or
-safe, that the simulated market resembles Aave, or that the sandbox is adequate (there isn't one
-yet). Never describe a strategy as safe or profitable because it passes `protocol test`.
+safe, that the simulated market resembles Aave, or that the sandbox is adequate (it is a thin layer over
+bubblewrap, not independently reviewed). Never describe a strategy as safe or profitable because it passes `protocol test`.
 
 ## Not yet tested (because not yet built)
 

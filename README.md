@@ -63,7 +63,8 @@ State is stored in `~/.protocol` (override with `--home DIR` or `$PROTOCOL_HOME`
 | Official strategies: stable-lending, health-factor-monitor, rate-monitor | implemented (simulation) |
 | Simulated Aave adapter | implemented (synthetic data) |
 | Real read-only Aave data | **proposed** (Phase 2) |
-| OS-level sandbox for non-Rust strategies, WASM runtime | **proposed** (Phase 4/5) |
+| OS sandbox for external strategies (bubblewrap, Linux) | implemented, not independently reviewed |
+| WASM runtime, sandboxed `build`, macOS sandbox | **proposed** |
 | Real transaction simulation, signing, wallets, testnet | **proposed** |
 | Backtesting, dashboard, marketplace, decentralized execution | **proposed** |
 
@@ -72,9 +73,10 @@ See [docs/roadmap.md](docs/roadmap.md).
 ## Important limits
 
 - External strategy processes get a timeout (the whole process group is killed), a CPU-time limit,
-  an optional memory limit, an output cap and an **empty environment**, but they are
-  **not OS-sandboxed**: a malicious one could read your files or use the network as your user.
-  Read the source of any strategy before running it. See [docs/security.md](docs/security.md).
+  an optional memory limit, an output cap, an **empty environment** and, by default, an **OS
+  sandbox** (no network, no access to your files; needs `bubblewrap`, Linux). Without `bwrap` they
+  are refused, unless you pass `--sandbox off`. `protocol build` is **not** sandboxed. Read the
+  source of any strategy before running or building it. See [docs/security.md](docs/security.md).
 - "Verified" means *reviewed*, not safe or profitable.
 
 ## Documentation
@@ -91,5 +93,5 @@ See [docs/roadmap.md](docs/roadmap.md).
 ## Tests
 
 ```bash
-cargo test            # 143 tests: unit + end-to-end CLI, including real toolchains
+cargo test            # 151 tests: unit + end-to-end CLI, including real toolchains
 ```

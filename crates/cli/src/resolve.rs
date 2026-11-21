@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use protocol_core::external::ExternalStrategy;
 use protocol_core::hash::hash_dir;
 use protocol_core::manifest::Manifest;
+use protocol_core::sandbox::SandboxMode;
 use protocol_core::store::Store;
 use protocol_core::strategy::Strategy;
 
@@ -106,13 +107,12 @@ pub fn resolve(store: &Store, reference: &str) -> Result<Resolved, String> {
     })
 }
 
-pub fn make_strategy(res: &Resolved) -> Result<Box<dyn Strategy>, String> {
+pub fn make_strategy(res: &Resolved, sandbox: SandboxMode) -> Result<Box<dyn Strategy>, String> {
     match &res.source {
         Source::Builtin => protocol_strategies::create(&res.manifest.name)
             .ok_or_else(|| format!("no built-in strategy '{}'", res.manifest.name)),
-        Source::External(dir) => Ok(Box::new(ExternalStrategy::from_manifest(
-            &res.manifest,
-            dir,
-        )?)),
+        Source::External(dir) => Ok(Box::new(
+            ExternalStrategy::from_manifest(&res.manifest, dir)?.with_sandbox(sandbox)?,
+        )),
     }
 }
