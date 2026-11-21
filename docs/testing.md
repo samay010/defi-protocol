@@ -1,7 +1,7 @@
 # Testing
 
 ```bash
-cargo test                 # everything (138 tests)
+cargo test                 # everything (145 tests)
 cargo test -p protocol-core
 cargo test -p protocol-cli --test cli      # end-to-end CLI tests
 ```
@@ -38,3 +38,12 @@ Real adapters against a node, signing, runtime isolation against hostile code (o
 limits exist: see `docs/security.md`),
 long-running soak tests, fuzzing of the line-protocol parser (recommended next), Windows.
 Platform: developed and tested on Linux; `sh`-based build commands mean Windows is unsupported.
+
+## Robustness and property tests
+
+`crates/core/tests/robustness.rs` runs on every `cargo test` using only std: mutated and random
+inputs for the strategy-output, manifest, action-line and amount parsers (no panics, accepted
+inputs satisfy invariants), and property tests for balance conservation, risk `Allow` implying
+every limit, and engine invariants over random action sequences (exposure cap, mode, network,
+kill switch, health-factor floor). Coverage-guided fuzzing lives in `fuzz/` (see its README).
+Scope for reviewers: `docs/audit-scope.md`.

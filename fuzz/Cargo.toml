@@ -1,0 +1,39 @@
+[package]
+name = "protocol-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+protocol-core = { path = "../crates/core" }
+
+# separate workspace: fuzzing needs nightly and must not affect the main build
+[workspace]
+
+[[bin]]
+name = "parse_output"
+path = "fuzz_targets/parse_output.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "manifest"
+path = "fuzz_targets/manifest.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "action_line"
+path = "fuzz_targets/action_line.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "amount"
+path = "fuzz_targets/amount.rs"
+test = false
+doc = false

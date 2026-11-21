@@ -334,7 +334,12 @@ pub fn parse_output(text: &str) -> Result<TickOutput, String> {
                     ));
                 }
             }
-            "DONE" => done = true,
+            "DONE" => {
+                if !rest.is_empty() {
+                    return Err(format!("line {n}: DONE takes no arguments"));
+                }
+                done = true
+            }
             other => return Err(format!("line {n}: unknown response command '{other}'")),
         }
     }

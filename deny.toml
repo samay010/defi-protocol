@@ -1,0 +1,16 @@
+# cargo-deny configuration (best effort; run `cargo deny check`, adjust to your cargo-deny version).
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = ["Apache-2.0", "MIT", "Unicode-3.0", "Unicode-DFS-2016", "BSD-3-Clause", "ISC", "Zlib"]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

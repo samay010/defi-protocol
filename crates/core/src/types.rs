@@ -93,6 +93,15 @@ impl Action {
         if p.len() != 5 {
             return Err(format!("malformed action line '{line}'"));
         }
+        let plain = |s: &str| {
+            s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        };
+        if !plain(p[1]) || !plain(p[2]) {
+            return Err(format!(
+                "malformed action line '{line}': bad protocol or asset"
+            ));
+        }
         Ok(Action {
             kind: ActionKind::parse(p[0])
                 .ok_or_else(|| format!("unknown action kind '{}'", p[0]))?,

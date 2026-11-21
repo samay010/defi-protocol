@@ -91,5 +91,5 @@ See [docs/roadmap.md](docs/roadmap.md).
 ## Tests
 
 ```bash
-cargo test            # 138 tests: unit + end-to-end CLI, including real toolchains
+cargo test            # 145 tests: unit + end-to-end CLI, including real toolchains
 ```
