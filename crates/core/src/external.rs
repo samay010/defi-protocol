@@ -758,23 +758,42 @@ mod tests {
         fs::create_dir_all(&secret_dir).unwrap();
         let secret = secret_dir.join("keys.txt");
         fs::write(&secret, "not for strategies").unwrap();
+        // a file next to the strategy dir (same parent) must not be visible either
+        let sib_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-tmp");
+        fs::create_dir_all(&sib_dir).unwrap();
+        let sibling = sib_dir
+            .canonicalize()
+            .unwrap()
+            .join(format!("proto-sibling-{}.txt", std::process::id()));
+        fs::write(&sibling, "not for strategies either").unwrap();
         let script = format!(
             "if cat {} >/dev/null 2>&1; then echo 'LOG file=leaked'; else echo 'LOG file=hidden'; fi\n\
              echo \"LOG interfaces=$(grep -c ':' /proc/net/dev)\"\n\
              if echo x > ./w.txt 2>/dev/null; then echo 'LOG dir=writable'; else echo 'LOG dir=readonly'; fi\n\
-             echo 'LOG home='$(ls /root /home 2>/dev/null | wc -l)\n\
+             echo 'LOG home='$(find /root /home -type f -not -path \"$PWD/*\" 2>/dev/null | wc -l)\n\
+             if cat {} >/dev/null 2>&1; then echo 'LOG sibling=leaked'; else echo 'LOG sibling=hidden'; fi\n\
              echo DONE\n",
-            secret.display()
+            secret.display(),
+            sibling.display()
         );
         let (d, m) = script_dir("sandbox-isolation", &script, 3000);
         let Some(mut s) = sandboxed(&m, &d) else {
             let _ = fs::remove_dir_all(&secret_dir);
+            let _ = fs::remove_file(&sibling);
             return;
         };
         let out = tick(&mut s).unwrap();
+        // bwrap creates empty parent directories for the strategy dir's mount point
+        // (e.g. /home/runner on CI), so directories may exist; no *files* may be reachable.
         assert_eq!(
             out.logs,
-            vec!["file=hidden", "interfaces=1", "dir=readonly", "home=0"],
+            vec![
+                "file=hidden",
+                "interfaces=1",
+                "dir=readonly",
+                "home=0",
+                "sibling=hidden"
+            ],
             "{:?}",
             out.logs
         );
@@ -782,8 +801,10 @@ mod tests {
         let mut plain = ExternalStrategy::from_manifest(&m, &d).unwrap();
         let out = tick(&mut plain).unwrap();
         assert_eq!(out.logs[0], "file=leaked");
+        assert_eq!(out.logs[4], "sibling=leaked");
         let _ = fs::remove_dir_all(&d);
         let _ = fs::remove_dir_all(&secret_dir);
+        let _ = fs::remove_file(&sibling);
     }
 
     #[cfg(target_os = "linux")]
