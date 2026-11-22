@@ -759,7 +759,8 @@ mod tests {
         let secret = secret_dir.join("keys.txt");
         fs::write(&secret, "not for strategies").unwrap();
         // a file next to the strategy dir (same parent) must not be visible either
-        let sib_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-tmp");
+        let sib_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-tmp");
         fs::create_dir_all(&sib_dir).unwrap();
         let sibling = sib_dir
             .canonicalize()
