@@ -639,14 +639,24 @@ mod tests {
             vec!["cpu=3 mem=unlimited"],
             "CPU limit by default, memory only when asked"
         );
-        let (d2, m2) = script_dir_with("limits-mem", script, 2000, "max_memory_mb = 256");
-        let out2 = tick(&mut ExternalStrategy::from_manifest(&m2, &d2).unwrap()).unwrap();
-        assert_eq!(out2.logs, vec!["cpu=3 mem=262144"]);
         let _ = fs::remove_dir_all(&d);
+        // `ulimit -v` (address-space limit) works on Linux only. Elsewhere a manifest that asks for
+        // it is refused rather than silently ignored (see the next assertion).
+        let (d2, m2) = script_dir_with("limits-mem", script, 2000, "max_memory_mb = 256");
+        let r2 = tick(&mut ExternalStrategy::from_manifest(&m2, &d2).unwrap());
+        if cfg!(target_os = "linux") {
+            assert_eq!(r2.unwrap().logs, vec!["cpu=3 mem=262144"]);
+        } else {
+            assert!(
+                r2.is_err(),
+                "a memory limit that cannot be applied must fail closed"
+            );
+        }
         let _ = fs::remove_dir_all(&d2);
     }
 
-    #[cfg(unix)]
+    // Linux only: `ulimit -v` is not reliably enforced (or even settable) on macOS.
+    #[cfg(target_os = "linux")]
     #[test]
     fn memory_limit_stops_a_greedy_python_strategy() {
         let have_python = Command::new("sh")

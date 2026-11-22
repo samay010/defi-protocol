@@ -50,6 +50,7 @@ and operational assessments are complete.
    still burn CPU within the limits and, through the line protocol, propose actions (which the
    risk engine checks). **Do not run strategies you have not read.**
 2. **Resource limits are partial.** Memory is limited only if the manifest sets `max_memory_mb`
+   (Linux only: on other systems such a manifest is refused instead of silently ignored)
    (address space, not resident memory; left off by default because the JVM reserves far more
    address space than it uses and will not start under a tight limit). There are no limits on
    open files, file size or number of processes, and the CPU limit is best effort (skipped if the

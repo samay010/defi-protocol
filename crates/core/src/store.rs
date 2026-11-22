@@ -502,6 +502,20 @@ mod tests {
         let _ = fs::remove_dir_all(&s.home);
     }
 
+    /// A lock is tied to the open file *description*. While another test thread of this process
+    /// sits between `fork` and `exec` of a child, that child still holds a copy of our just-closed
+    /// descriptor, so the lock looks held for a few milliseconds. This is the same transient the
+    /// production code rides out with `lock_instance_retry`, so these tests wait for it too.
+    fn settled_not_running(s: &Store, name: &str) -> bool {
+        for _ in 0..100 {
+            if !s.is_running(name) {
+                return true;
+            }
+            sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
     #[test]
     fn lock_is_exclusive_and_released_on_drop() {
         let s = temp_store("lock");
@@ -515,8 +529,8 @@ mod tests {
         );
         assert!(s.lock_instance_retry("l").unwrap().is_none());
         drop(first);
-        assert!(!s.is_running("l"), "released on drop");
-        assert!(s.lock_instance("l").unwrap().is_some());
+        assert!(settled_not_running(&s, "l"), "released on drop");
+        assert!(s.lock_instance_retry("l").unwrap().is_some());
         let _ = fs::remove_dir_all(&s.home);
     }
 
@@ -531,8 +545,8 @@ mod tests {
         s.create(&meta("p")).unwrap();
         // many probes in a row never make a real lock attempt fail
         for _ in 0..20 {
-            assert!(!s.is_running("p"));
-            assert!(s.lock_instance("p").unwrap().is_some());
+            assert!(settled_not_running(&s, "p"));
+            assert!(s.lock_instance_retry("p").unwrap().is_some());
         }
         let _ = fs::remove_dir_all(&s.home);
     }
