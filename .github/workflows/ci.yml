@@ -5,6 +5,7 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false   # one OS failing must not cancel (and hide) the other
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
