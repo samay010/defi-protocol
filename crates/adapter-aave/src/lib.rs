@@ -6,6 +6,8 @@
 //! end (brief section 15: simulation-only first). A real read-only adapter is Phase 2 work,
 //! see `docs/roadmap.md`.
 
+pub mod onchain;
+
 use std::collections::BTreeMap;
 
 use protocol_core::adapter::{Account, MarketInfo, ProtocolAdapter, Snapshot};

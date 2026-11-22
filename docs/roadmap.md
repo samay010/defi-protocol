@@ -7,8 +7,10 @@ Rust workspace, architecture docs and ADRs, strategy interfaces (trait + line pr
 
 ## Phase 2: Aave integration: partly done
 - Done: adapter interface, simulated Aave adapter, read-only (alert-only) strategies.
-- Next: real read-only data via an Ethereum RPC (decide HTTP client and ABI approach in a new
-  ADR first; dependencies must be justified), account/market queries, Aave rate and health-factor
+- Done: read-only ABI layer for `Pool.getUserAccountData` (ADR 0013, no I/O, no new deps).
+- Next: HTTPS JSON-RPC transport behind `EthCall` (audited crates, own dependency review), an
+  official testnet Pool address supplied by the user, confirming health-factor/base-currency
+  scales against the official source, then market queries, Aave rate and health-factor
   formulas checked against the real protocol. Testnet only.
 
 ## Phase 3: Strategy engine: mostly done

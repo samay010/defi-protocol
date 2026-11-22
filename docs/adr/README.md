@@ -17,3 +17,4 @@ Status values: Accepted, Proposed, Superseded.
 | 0010 | `clap` for argument parsing | Accepted |
 | 0011 | `serde` + `toml` for strategy manifests | Accepted |
 | 0012 | `bubblewrap` OS sandbox for external strategies | Accepted |
+| 0013 | Read-only chain access in two layers | Accepted (layer 2 proposed) |

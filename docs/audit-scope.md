@@ -42,7 +42,8 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
   is not sandboxed. A reviewer should check the exposed paths in `bwrap_args` and the fail-closed
   logic in `prepare`.
 - Unix only.
-- The Aave adapter is a simulation with synthetic data.
+- The Aave adapter is a simulation with synthetic data. `adapter-aave/src/onchain.rs` is a
+  read-only ABI layer (no I/O, no keys, cannot sign or send); scales are still unconfirmed.
 - "Verified" means a named reviewer read that exact source tree. It does not mean safe or profitable.
 - Health-factor math uses `f64`; fine for simulation, revisit with fixed-point before real funds.
 
