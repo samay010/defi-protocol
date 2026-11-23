@@ -37,8 +37,12 @@ address book for the chosen testnet; with none configured the protocol stays on 
 
 ## Consequences
 - Layer 1 is fully tested offline (no RPC needed) and adds nothing to the supply chain.
-- Scales (`HEALTH_FACTOR_SCALE`, base-currency units) are named constants flagged "to confirm"
-  against the official source and against the Aave UI on a testnet before any use in decisions.
+- Scales were confirmed on 2026-11-24 from Aave's own sources: `healthFactor` has 18 decimals
+  and is `type(uint256).max` with no debt (`GenericLogic.calculateUserAccountData`,
+  aave-v3-origin); base-currency amounts are USD with 8 decimals (Sepolia `AaveOracle`:
+  `BASE_CURRENCY_UNIT() = 1e8`, `BASE_CURRENCY()` = zero address). `ltv` and
+  `currentLiquidationThreshold` are treated as basis points; to be matched against the Aave UI
+  with a real testnet position (also the first test of non-zero values).
 - No EIP-55 checksum validation (needs Keccak); addresses are checked for shape only.
 - Using the result for decisions is a later step and stays behind the risk engine.
 - Alloy 2.x needs a recent Rust (MSRV 1.94.1 per its docs); the workspace uses `stable`.

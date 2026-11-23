@@ -28,7 +28,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let reader = AaveReader::new(connect(&url)?, pool);
     let d = reader.account_data(&user)?;
 
-    println!("(read-only; raw on-chain integers, scales unconfirmed, see ADR 0013)");
+    println!("(read-only; base amounts are USD with 8 decimals, health factor has 18 decimals)");
     println!(
         "total_collateral_base       = {:?}",
         d.total_collateral_base.to_u128()
@@ -47,7 +47,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("ltv                         = {:?}", d.ltv.to_u128());
     match d.health_factor_f64() {
-        Some(hf) => println!("health_factor               = {hf} (assuming 1e18 scale)"),
+        Some(hf) => println!("health_factor               = {hf}"),
         None => println!("health_factor               = no debt"),
     }
     Ok(())

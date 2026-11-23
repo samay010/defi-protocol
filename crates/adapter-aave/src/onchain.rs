@@ -10,17 +10,26 @@
 //! independent Keccak-256 implementation. Pool ADDRESSES are deliberately not baked in: the
 //! caller must supply one copied from Aave's official address book for the chosen testnet.
 //!
-//! Scales (NOT stated on the docs pages used, so they are named constants to be confirmed
-//! against the official source and against the Aave UI on a testnet before anyone relies on
-//! them): base-currency amounts and the health factor are returned as raw integers.
+//! Scales, confirmed on 2026-11-24 from Aave's own sources (not from memory):
+//! - `healthFactor` has 18 decimals and is `type(uint256).max` when the account has no debt
+//!   (comment and code in `GenericLogic.calculateUserAccountData`, aave-v3-origin).
+//! - Base-currency amounts are USD with 8 decimals: the Sepolia `AaveOracle` returned
+//!   `BASE_CURRENCY_UNIT() = 100000000` and `BASE_CURRENCY()` = the zero address (USD).
+//!
+//! Still to be matched against the Aave UI with a real position: `ltv` and
+//! `currentLiquidationThreshold` are treated as basis points (the contract divides by 100_00).
 
 use std::fmt;
 
 /// `bytes4(keccak256("getUserAccountData(address)"))`, verified independently.
 pub const GET_USER_ACCOUNT_DATA_SELECTOR: [u8; 4] = [0xbf, 0x92, 0x85, 0x7c];
 
-/// Assumed fixed-point scale of `healthFactor` (1e18). To be confirmed, see module docs.
+/// Fixed-point scale of `healthFactor` (1e18). Confirmed from Aave's `GenericLogic`.
 pub const HEALTH_FACTOR_SCALE: f64 = 1e18;
+
+/// One USD in base-currency units (8 decimals). Confirmed on-chain via the Sepolia
+/// oracle's `BASE_CURRENCY_UNIT()`; the base currency is USD.
+pub const BASE_CURRENCY_UNIT: f64 = 1e8;
 
 /// A 20-byte account/contract address. No EIP-55 checksum check (that needs Keccak, which we
 /// do not ship); validity here means "0x + 40 hex digits" and nothing more.
@@ -129,6 +138,16 @@ impl AccountData {
         } else {
             Some(self.health_factor.to_f64_lossy() / HEALTH_FACTOR_SCALE)
         }
+    }
+
+    /// Total collateral in USD (display/threshold use only; lossy float).
+    pub fn total_collateral_usd(&self) -> f64 {
+        self.total_collateral_base.to_f64_lossy() / BASE_CURRENCY_UNIT
+    }
+
+    /// Total debt in USD (display/threshold use only; lossy float).
+    pub fn total_debt_usd(&self) -> f64 {
+        self.total_debt_base.to_f64_lossy() / BASE_CURRENCY_UNIT
     }
 
     pub fn total_debt_base_u128(&self) -> Result<u128, ChainError> {
@@ -364,6 +383,24 @@ mod tests {
         assert!(!d.has_no_debt());
         assert_eq!(d.health_factor_f64(), Some(2.5));
         assert_eq!(d.total_debt_base_u128(), Ok(400));
+    }
+
+    #[test]
+    fn base_amounts_are_usd_with_eight_decimals() {
+        // 1_500.25 USD collateral, 400 USD debt, in 1e8 base units
+        let reply = format!(
+            "0x{}{}{}{}{}{}",
+            word(150_025_000_000),
+            word(40_000_000_000),
+            word(0),
+            word(8250),
+            word(8000),
+            word(2_000_000_000_000_000_000)
+        );
+        let d = decode_account_data(&reply).unwrap();
+        assert!((d.total_collateral_usd() - 1500.25).abs() < 1e-9);
+        assert!((d.total_debt_usd() - 400.0).abs() < 1e-9);
+        assert_eq!(d.health_factor_f64(), Some(2.0));
     }
 
     #[test]

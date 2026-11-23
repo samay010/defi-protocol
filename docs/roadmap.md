@@ -9,8 +9,8 @@ Rust workspace, architecture docs and ADRs, strategy interfaces (trait + line pr
 - Done: adapter interface, simulated Aave adapter, read-only (alert-only) strategies.
 - Done: read-only ABI layer for `Pool.getUserAccountData` (ADR 0013, no I/O, no new deps).
 - Next: HTTPS JSON-RPC transport behind `EthCall` (audited crates, own dependency review), an
-  official testnet Pool address supplied by the user, confirming health-factor/base-currency
-  scales against the official source, then market queries, Aave rate and health-factor
+  official testnet Pool address supplied by the user, matching a real testnet position against the Aave UI (health-factor and base-currency scales
+  are already confirmed from source), then market queries, Aave rate and health-factor
   formulas checked against the real protocol. Testnet only.
 
 ## Phase 3: Strategy engine: mostly done
