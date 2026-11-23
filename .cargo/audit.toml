@@ -1,0 +1,7 @@
+# cargo-audit configuration. Keep in sync with deny.toml [advisories].ignore.
+[advisories]
+ignore = [
+    # crypto-bigint 0.5.5 timing issue; reached only via alloy -> k256; no secret integers are
+    # handled and there is no upgrade path yet. Remove when alloy/elliptic-curve move on.
+    "RUSTSEC-2026-0387",
+]

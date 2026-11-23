@@ -44,6 +44,8 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 - Unix only.
 - The Aave adapter is a simulation with synthetic data. `adapter-aave/src/onchain.rs` is a
   read-only ABI layer (no I/O, no keys, cannot sign or send); scales are still unconfirmed.
+- `crates/rpc` is the only network-facing code (alloy, tokio, reqwest/rustls). The dependency tree
+  is large; see ADR 0013 for the accepted advisory and the no-key-holding-crate CI check.
 - "Verified" means a named reviewer read that exact source tree. It does not mean safe or profitable.
 - Health-factor math uses `f64`; fine for simulation, revisit with fixed-point before real funds.
 

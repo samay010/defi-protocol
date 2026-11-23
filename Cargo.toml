@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/core",
     "crates/adapter-aave",
+    "crates/rpc",
     "crates/strategies",
     "crates/cli",
 ]
@@ -13,5 +14,5 @@ edition = "2021"
 license = "Apache-2.0"
 publish = false
 
-# No third-party dependencies in this release: everything is std-only.
+# Third-party dependencies are listed per crate; each needs an ADR (see docs/adr).
 # See docs/adr/0003-std-only-first-release.md

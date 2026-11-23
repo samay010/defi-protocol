@@ -31,6 +31,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: no key-holding signer crates in the dependency tree
+        run: |
+          if cargo tree -p protocol-rpc | grep -E "alloy-signer-(local|keystore|mnemonic|ledger|trezor|aws|gcp|azure|turnkey|yubihsm)|coins-bip|bip39"; then
+            echo "a crate that can hold a private key is in the dependency tree"; exit 1
+          fi
       - run: cargo install --locked cargo-audit cargo-deny
       - run: cargo audit
       - run: cargo deny check

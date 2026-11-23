@@ -200,6 +200,84 @@ impl<T: EthCall> AaveReader<T> {
     }
 }
 
+/// Chain ids this release may talk to. Testnets only until audits (ADR 0006).
+/// 11155111 = Ethereum Sepolia.
+pub const ALLOWED_CHAIN_IDS: [u64; 1] = [11_155_111];
+
+/// Refuse any chain that is not on the testnet allowlist (mainnet included).
+pub fn ensure_allowed_chain(chain_id: u64) -> Result<(), ChainError> {
+    if ALLOWED_CHAIN_IDS.contains(&chain_id) {
+        Ok(())
+    } else {
+        Err(ChainError::Transport(format!(
+            "chain id {chain_id} is not allowed (testnets only: {ALLOWED_CHAIN_IDS:?})"
+        )))
+    }
+}
+
+/// An RPC URL must be https, or plain http only to this machine. URLs usually carry an API
+/// key, so no error produced from here includes the URL itself.
+pub fn check_rpc_url(url: &str) -> Result<(), ChainError> {
+    let bad = |why: &str| Err(ChainError::Transport(format!("invalid RPC URL: {why}")));
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return bad("contains whitespace or control characters");
+    }
+    if let Some(rest) = url.strip_prefix("https://") {
+        return if rest.is_empty() || rest.starts_with('/') {
+            bad("missing host")
+        } else {
+            Ok(())
+        };
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        let host = if rest.starts_with('[') {
+            // IPv6 literal: keep everything up to and including the closing bracket
+            rest.find(']').map_or("", |i| &rest[..=i])
+        } else {
+            rest.split(['/', ':', '?', '#']).next().unwrap_or("")
+        };
+        return if ["localhost", "127.0.0.1", "[::1]"].contains(&host) {
+            Ok(())
+        } else {
+            bad("plain http is only allowed for localhost")
+        };
+    }
+    bad("must start with https://")
+}
+
+/// Replace every occurrence of the RPC URL (and its path/query, where keys live) in `msg`.
+pub fn redact_url(msg: &str, url: &str) -> String {
+    let mut out = if url.is_empty() {
+        msg.to_string()
+    } else {
+        msg.replace(url, "<rpc-url>")
+    };
+    // also the part after the host, in case a library prints only the path
+    if let Some(i) = url.find("://") {
+        let after = &url[i + 3..];
+        if let Some(slash) = after.find('/') {
+            let path = &after[slash..];
+            if path.len() > 1 {
+                out = out.replace(path, "/<redacted>");
+            }
+        }
+    }
+    out
+}
+
+/// `0x`-prefixed hex to bytes.
+pub fn hex_to_bytes(s: &str) -> Result<Vec<u8>, ChainError> {
+    let hex = s
+        .strip_prefix("0x")
+        .ok_or_else(|| ChainError::BadHex("missing 0x".into()))?;
+    decode_hex(hex).map_err(ChainError::BadHex)
+}
+
+/// Bytes to `0x`-prefixed lowercase hex.
+pub fn bytes_to_hex(bytes: &[u8]) -> String {
+    encode_hex_prefixed(bytes)
+}
+
 fn encode_hex_prefixed(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(2 + bytes.len() * 2);
@@ -345,6 +423,63 @@ mod tests {
             d.total_debt_base_u128(),
             Err(ChainError::Overflow("total_debt_base"))
         );
+    }
+
+    #[test]
+    fn only_testnets_are_allowed() {
+        assert!(ensure_allowed_chain(11_155_111).is_ok());
+        for id in [1u64, 10, 137, 8453, 42161, 0] {
+            assert!(ensure_allowed_chain(id).is_err(), "{id}");
+        }
+    }
+
+    #[test]
+    fn rpc_url_must_be_https_or_local_http() {
+        for ok in [
+            "https://eth-sepolia.example.com/v2/KEY",
+            "https://rpc.example.org",
+            "http://localhost:8545",
+            "http://127.0.0.1:8545/",
+            "http://[::1]:8545",
+        ] {
+            assert!(check_rpc_url(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "",
+            "https://",
+            "https:///x",
+            "http://example.com/v2/KEY",
+            "http://localhost.evil.com/x",
+            "ftp://x.example.com",
+            "ws://localhost:8546",
+            "example.com",
+            "https://a.example.com/ x",
+            "https://a.example.com/\n",
+        ] {
+            assert!(check_rpc_url(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn errors_never_contain_the_rpc_url_or_its_key() {
+        let url = "https://eth-sepolia.example.com/v2/SUPERSECRETKEY";
+        let msg =
+            format!("error sending request for url ({url}): timed out; path /v2/SUPERSECRETKEY");
+        let out = redact_url(&msg, url);
+        assert!(!out.contains("SUPERSECRETKEY"), "{out}");
+        assert!(out.contains("<rpc-url>"));
+        // a bad-URL error must not echo the URL either
+        let e = check_rpc_url("http://example.com/v2/SUPERSECRETKEY").unwrap_err();
+        assert!(!e.to_string().contains("SUPERSECRETKEY"));
+    }
+
+    #[test]
+    fn hex_helpers_round_trip() {
+        let b = hex_to_bytes("0x00ff10").unwrap();
+        assert_eq!(b, vec![0, 255, 16]);
+        assert_eq!(bytes_to_hex(&b), "0x00ff10");
+        assert!(hex_to_bytes("00ff").is_err());
+        assert!(hex_to_bytes("0xf").is_err());
     }
 
     struct Fake {

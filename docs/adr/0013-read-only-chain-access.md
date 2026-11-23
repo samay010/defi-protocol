@@ -1,6 +1,6 @@
 # ADR 0013: Read-only chain access, in two layers
 
-Status: Accepted (layer 1 implemented; layer 2 proposed)
+Status: Accepted (layer 1 and layer 2 implemented; layer 2 not yet verified against a live testnet)
 
 ## Context
 Phase 2 needs real Aave data. The risk is not reading, it is accidentally gaining the ability to
@@ -17,10 +17,20 @@ Split chain access into two layers.
    express a transaction or a signature in this API. The 4-byte selector (`0xbf92857c`) was
    recomputed with an independent Keccak-256, and signature and return-value order come from the
    official Aave "Pool" documentation.
-2. **Transport** (proposed, next step): an HTTPS JSON-RPC client behind `EthCall`, using
-   audited/popular crates (an HTTP client with rustls, and `serde_json`) rather than hand-written
-   TLS or JSON. It will get its own dependency review, `cargo deny` and `cargo audit` pass, and it
-   will be the only code with network access; strategies stay offline in the sandbox.
+2. **Transport** (`crates/rpc`, crate `protocol-rpc`): an HTTPS JSON-RPC client behind
+   `EthCall`, built on `alloy` (the maintainer's choice over a smaller `ureq` + `serde_json`
+   client; it brings a much larger dependency tree, which the audit scope must cover). Alloy
+   is confined to this one crate and used with `default-features = false` and only `std`,
+   `network`, `providers`, `provider-http`, `reqwest-rustls-tls`, `rpc-types-eth`, because its
+   default features include a local signer. After every dependency change, CI checks that
+   `cargo tree -p protocol-rpc` contains no crate that can hold a private key
+   (`alloy-signer-local`, keystore, mnemonic, hardware or cloud signers). The `alloy-signer`
+   *trait* crate and `k256` are unavoidably present (alloy-network, signature types), so the
+   guarantee is about our code and API surface (no key exists, only `eth_call` is exposed), not
+   that signing-capable library code is absent from the build. The crate connects, verifies the chain id is on the
+   testnet allowlist (Sepolia only), and runs `eth_call` with a 15 s timeout; it is the only
+   code with network access. The RPC URL comes from `PROTOCOL_RPC_URL`, must be https (http only
+   to localhost), and is scrubbed from every error message.
 
 Pool addresses are never baked in. The user supplies one (config/env), copied from Aave's official
 address book for the chosen testnet; with none configured the protocol stays on the simulation.
@@ -31,3 +41,14 @@ address book for the chosen testnet; with none configured the protocol stays on 
   against the official source and against the Aave UI on a testnet before any use in decisions.
 - No EIP-55 checksum validation (needs Keccak); addresses are checked for shape only.
 - Using the result for decisions is a later step and stays behind the risk engine.
+- Alloy 2.x needs a recent Rust (MSRV 1.94.1 per its docs); the workspace uses `stable`.
+- The transport has no automated test against a live node (CI has no RPC). The manual check is
+  `cargo run -p protocol-rpc --example account`, compared with the Aave UI. Pure parts (URL
+  check, URL redaction, chain allowlist, ABI) are unit-tested in `adapter-aave`.
+- **Accepted advisory RUSTSEC-2026-0387** (`crypto-bigint 0.5.5`, timing of constant-time ops):
+  reached only through alloy's `elliptic-curve`/`k256`, which cannot be upgraded yet
+  (`elliptic-curve 0.13.x` requires `crypto-bigint ^0.5`; fix is in 0.7.6). It matters only when
+  secret integers are processed; this program holds none. Ignored by ID in `deny.toml` and
+  `.cargo/audit.toml` with a removal condition: drop both when alloy moves off it.
+- Added permissive licenses to `deny.toml` (ISC, BSD-3-Clause, MIT-0, CDLA-Permissive-2.0, Zlib),
+  all from the TLS stack and small utility crates; copyleft (LGPL) is not allowed.

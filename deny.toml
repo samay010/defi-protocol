@@ -1,10 +1,30 @@
-# cargo-deny configuration (best effort; run `cargo deny check`, adjust to your cargo-deny version).
+# cargo-deny configuration (run `cargo deny check`).
 [advisories]
 yanked = "deny"
+ignore = [
+    # crypto-bigint 0.5.5: constant-time operations may branch on secret-dependent values.
+    # Reached only through alloy -> elliptic-curve/k256 (signature types). We never operate on
+    # secret integers: no keys exist anywhere in this program and protocol-rpc can only run
+    # eth_call. There is no upgrade path yet (elliptic-curve 0.13.x requires crypto-bigint ^0.5;
+    # the fix is in 0.7.6). REMOVE this ignore as soon as alloy / elliptic-curve move on.
+    # Mirrored in .cargo/audit.toml. See docs/adr/0013-read-only-chain-access.md.
+    { id = "RUSTSEC-2026-0387", reason = "no secret integers handled; no upgrade path yet" },
+]
 
 [licenses]
-# only licenses actually present are listed; add one when a new dependency needs it
-allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+# Only permissive licenses. Each non-default one is listed with why it is needed.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "Unicode-3.0",
+    "ISC",                 # rustls-webpki, untrusted, aws-lc-rs/-sys (TLS stack of reqwest)
+    "BSD-3-Clause",        # subtle, aws-lc-sys
+    "MIT-0",               # aws-lc-sys
+    "CDLA-Permissive-2.0", # webpki-root-certs (Mozilla root list)
+    "Zlib",                # foldhash
+]
+# NOT allowed on purpose: LGPL-2.1-or-later. It appears only as one alternative of
+# r-efi's "MIT OR Apache-2.0 OR LGPL-2.1-or-later"; cargo-deny satisfies that via MIT.
 confidence-threshold = 0.8
 
 [bans]
