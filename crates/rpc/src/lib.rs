@@ -30,8 +30,9 @@ pub const ENV_POOL: &str = "PROTOCOL_AAVE_POOL";
 const TIMEOUT: Duration = Duration::from_secs(15);
 
 struct Http<P> {
-    rt: tokio::runtime::Runtime,
+    // field order matters: the provider is dropped before the runtime it was used on
     provider: P,
+    rt: tokio::runtime::Runtime,
     url: String,
 }
 
@@ -47,10 +48,11 @@ impl<P: Provider> EthCall for Http<P> {
         let tx = TransactionRequest::default()
             .with_to(RawAddress::from(to.0))
             .with_input(Bytes::from(data));
-        let fut = async { self.provider.call(tx).await };
+        // the timeout must be created inside the runtime (its timer needs the runtime context)
+        let fut = async { tokio::time::timeout(TIMEOUT, self.provider.call(tx)).await };
         let out: Bytes = self
             .rt
-            .block_on(tokio::time::timeout(TIMEOUT, fut))
+            .block_on(fut)
             .map_err(|_| ChainError::Transport("rpc request timed out".into()))?
             .map_err(|e| self.scrub(e))?;
         Ok(bytes_to_hex(&out))
@@ -69,14 +71,14 @@ pub fn connect(rpc_url: &str) -> Result<impl EthCall, ChainError> {
         .build()
         .map_err(|e| ChainError::Transport(format!("cannot start runtime: {e}")))?;
     let http = Http {
-        rt,
         provider: ProviderBuilder::new().connect_http(parsed),
+        rt,
         url: rpc_url.to_string(),
     };
-    let fut = async { http.provider.get_chain_id().await };
+    let fut = async { tokio::time::timeout(TIMEOUT, http.provider.get_chain_id()).await };
     let chain_id = http
         .rt
-        .block_on(tokio::time::timeout(TIMEOUT, fut))
+        .block_on(fut)
         .map_err(|_| ChainError::Transport("rpc request timed out".into()))?
         .map_err(|e| http.scrub(e))?;
     ensure_allowed_chain(chain_id)?;
