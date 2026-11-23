@@ -150,6 +150,21 @@ impl AccountData {
         self.total_debt_base.to_f64_lossy() / BASE_CURRENCY_UNIT
     }
 
+    /// Remaining borrowing power in USD (display only).
+    pub fn available_borrows_usd(&self) -> f64 {
+        self.available_borrows_base.to_f64_lossy() / BASE_CURRENCY_UNIT
+    }
+
+    /// `ltv` as a percentage (basis points / 100). Basis points are assumed, see module docs.
+    pub fn ltv_percent(&self) -> f64 {
+        self.ltv.to_f64_lossy() / 100.0
+    }
+
+    /// `currentLiquidationThreshold` as a percentage (basis points / 100).
+    pub fn liquidation_threshold_percent(&self) -> f64 {
+        self.current_liquidation_threshold.to_f64_lossy() / 100.0
+    }
+
     pub fn total_debt_base_u128(&self) -> Result<u128, ChainError> {
         self.total_debt_base
             .to_u128()
@@ -401,6 +416,9 @@ mod tests {
         assert!((d.total_collateral_usd() - 1500.25).abs() < 1e-9);
         assert!((d.total_debt_usd() - 400.0).abs() < 1e-9);
         assert_eq!(d.health_factor_f64(), Some(2.0));
+        assert_eq!(d.available_borrows_usd(), 0.0);
+        assert!((d.ltv_percent() - 80.0).abs() < 1e-9);
+        assert!((d.liquidation_threshold_percent() - 82.5).abs() < 1e-9);
     }
 
     #[test]

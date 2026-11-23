@@ -3092,6 +3092,7 @@ dependencies = [
  "clap",
  "protocol-adapter-aave",
  "protocol-core",
+ "protocol-rpc",
  "protocol-strategies",
 ]
 

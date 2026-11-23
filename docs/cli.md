@@ -22,6 +22,7 @@ before 1.0.
 | `approve <instance> <id>` / `reject <instance> <id>` | Decide a queued action (risk is re-checked on approve) |
 | `act <instance> --kind K --asset A --amount X [--protocol P]` | Manual action, risk-checked like any other |
 | `kill-switch on\|off\|status` | Block all fund-moving actions immediately; alerts still work |
+| `aave account <0xaddress>` | Read-only: an Aave V3 account's collateral, debt and health factor on Sepolia. Needs `PROTOCOL_RPC_URL` (https URL of a Sepolia node; usually contains an API key, so env only) and `PROTOCOL_AAVE_POOL` (Pool address from Aave's official address book). One `eth_call`; nothing is signed or sent; other chains, mainnet included, are refused. |
 
 Modes: `autonomous` (execute what passes risk), `approval` (queue for the user), `manual`
 (strategy suggestions only; you act with `act`). Scenarios: `calm`, `stress` (WETH price falls

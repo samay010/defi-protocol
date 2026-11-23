@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use protocol_adapter_aave::onchain::{AaveReader, AccountData, Address};
 use protocol_adapter_aave::AaveSim;
 use protocol_core::adapter::{Account, ProtocolAdapter};
 use protocol_core::amount::{format_amount, parse_amount};
@@ -24,7 +25,7 @@ use protocol_core::store::{Instance, Store};
 use protocol_core::supervisor::{self, RunConfig};
 use protocol_core::types::{Action, ActionKind, Mode, Network, Scenario, Status};
 
-use args::{Cli, Cmd, StrategiesCmd};
+use args::{AaveCmd, Cli, Cmd, StrategiesCmd};
 use clap::{CommandFactory, Parser};
 use resolve::{make_strategy, resolve, Resolved, Source, Tier};
 
@@ -175,6 +176,7 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
             protocol,
         } => cmd_act(instance, kind, asset, amount, protocol, store, out),
         Cmd::KillSwitch { which } => cmd_kill_switch(which, store, out),
+        Cmd::Aave(AaveCmd::Account { address }) => cmd_aave_account(address, out),
     }
 }
 
@@ -1089,4 +1091,110 @@ fn cmd_kill_switch(which: String, store: &Store, out: &mut dyn Write) -> R {
         _ => return usage("kill-switch takes on, off or status"),
     }
     Ok(0)
+}
+
+fn env_required(name: &str) -> Result<String, E> {
+    // never echo the value: the RPC URL carries an API key
+    match std::env::var(name) {
+        Ok(v) if !v.trim().is_empty() => Ok(v.trim().to_string()),
+        _ => Err(E::Fail(format!(
+            "{name} is not set (see `protocol aave account --help`)"
+        ))),
+    }
+}
+
+fn cmd_aave_account(address: String, out: &mut dyn Write) -> R {
+    // validate the input first: a typo must not need the network or any secret
+    let user = Address::parse(&address).map_err(|e| E::Fail(e.to_string()))?;
+    let url = env_required(protocol_rpc::ENV_RPC_URL)?;
+    let pool_text = env_required(protocol_rpc::ENV_POOL)?;
+    let pool = Address::parse(&pool_text)
+        .map_err(|e| E::Fail(format!("{}: {e}", protocol_rpc::ENV_POOL)))?;
+    let transport = protocol_rpc::connect(&url).map_err(|e| E::Fail(e.to_string()))?;
+    let reader = AaveReader::new(transport, pool);
+    let data = reader
+        .account_data(&user)
+        .map_err(|e| E::Fail(e.to_string()))?;
+    print_aave_account(out, &user, reader.pool(), &data);
+    Ok(0)
+}
+
+fn print_aave_account(out: &mut dyn Write, user: &Address, pool: &Address, d: &AccountData) {
+    outln!(out, "Aave V3 account (read-only, testnet)");
+    outln!(out, "  address            {}", user.to_hex());
+    outln!(out, "  pool               {}", pool.to_hex());
+    outln!(
+        out,
+        "  collateral         {:.2} USD",
+        d.total_collateral_usd()
+    );
+    outln!(out, "  debt               {:.2} USD", d.total_debt_usd());
+    outln!(
+        out,
+        "  available borrows  {:.2} USD",
+        d.available_borrows_usd()
+    );
+    outln!(
+        out,
+        "  liquidation limit  {:.2}%",
+        d.liquidation_threshold_percent()
+    );
+    outln!(out, "  ltv                {:.2}%", d.ltv_percent());
+    match d.health_factor_f64() {
+        Some(hf) => outln!(out, "  health factor      {hf:.3}"),
+        None => outln!(out, "  health factor      n/a (no debt)"),
+    }
+}
+
+#[cfg(test)]
+mod aave_tests {
+    use super::*;
+    use protocol_adapter_aave::onchain::decode_account_data;
+
+    fn words(w: [u128; 6]) -> String {
+        format!("0x{}", w.map(|n| format!("{n:064x}")).concat())
+    }
+
+    fn render(reply: &str) -> String {
+        let d = decode_account_data(reply).unwrap();
+        let user = Address::parse("0x1111111111111111111111111111111111111111").unwrap();
+        let pool = Address::parse("0x2222222222222222222222222222222222222222").unwrap();
+        let mut out = Vec::new();
+        print_aave_account(&mut out, &user, &pool, &d);
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn report_shows_usd_percent_and_health_factor() {
+        let text = render(&words([
+            150_025_000_000,
+            40_000_000_000,
+            5_000_000_000,
+            8250,
+            8000,
+            2_500_000_000_000_000_000,
+        ]));
+        assert!(text.contains("collateral         1500.25 USD"), "{text}");
+        assert!(text.contains("debt               400.00 USD"), "{text}");
+        assert!(text.contains("available borrows  50.00 USD"), "{text}");
+        assert!(text.contains("liquidation limit  82.50%"), "{text}");
+        assert!(text.contains("ltv                80.00%"), "{text}");
+        assert!(text.contains("health factor      2.500"), "{text}");
+    }
+
+    #[test]
+    fn report_says_no_debt_instead_of_a_huge_number() {
+        let w = |n: u128| format!("{n:064x}");
+        let reply = format!(
+            "0x{}{}{}{}{}{}",
+            w(1_000),
+            w(0),
+            w(800),
+            w(8250),
+            w(8000),
+            "f".repeat(64)
+        );
+        let text = render(&reply);
+        assert!(text.contains("health factor      n/a (no debt)"), "{text}");
+    }
 }

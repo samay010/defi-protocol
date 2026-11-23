@@ -1123,3 +1123,27 @@ fn external_strategies_are_sandboxed_by_default_or_refused() {
     assert_eq!(off.code, 0, "{}{}", off.out, off.err);
     assert!(off.out.contains("sandbox: OFF"), "{}", off.out);
 }
+
+#[test]
+fn aave_account_rejects_a_bad_address_before_touching_env_or_network() {
+    let c = Cli::new("aave-bad-addr");
+    for bad in [
+        "nonsense",
+        "0x12",
+        "0x0000000000000000000000000000000000000000",
+    ] {
+        let r = c.run(&["aave", "account", bad]);
+        assert_eq!(r.code, 1, "{bad}: {}{}", r.out, r.err);
+        assert!(r.err.contains("bad address"), "{bad}: {}", r.err);
+    }
+}
+
+#[test]
+fn aave_account_needs_an_address_and_is_documented_in_help() {
+    let c = Cli::new("aave-usage");
+    assert_eq!(c.run(&["aave", "account"]).code, 2);
+    let help = c.ok(&["aave", "account", "--help"]);
+    assert!(help.contains("PROTOCOL_RPC_URL"), "{help}");
+    assert!(help.contains("PROTOCOL_AAVE_POOL"), "{help}");
+    assert!(help.contains("mainnet"), "{help}");
+}

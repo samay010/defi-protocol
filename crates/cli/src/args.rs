@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
     name = "protocol",
     version,
     about = "DeFi strategy execution protocol (simulation-only release)",
-    after_help = "All execution is simulated. Testnet and mainnet are not available in this release.\n\
+    after_help = "All strategy execution is simulated. Mainnet is not available in this release; `protocol aave account` can read (never write) a Sepolia testnet account.\n\
 Amounts are decimal token amounts (e.g. 100.5). State lives in --home, $PROTOCOL_HOME or ~/.protocol."
 )]
 pub struct Cli {
@@ -131,8 +131,27 @@ pub enum Cmd {
         /// on | off | status
         which: String,
     },
+    /// Read-only Aave testnet data (needs PROTOCOL_RPC_URL and PROTOCOL_AAVE_POOL)
+    #[command(subcommand)]
+    Aave(AaveCmd),
     /// Print the version
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AaveCmd {
+    /// Show an account's collateral, debt and health factor (read-only; Sepolia testnet only)
+    #[command(
+        after_help = "Reads Aave V3 `Pool.getUserAccountData` with a single eth_call. Nothing is signed or sent.\n\
+Environment (never flags or files, the RPC URL usually contains an API key):\n\
+  PROTOCOL_RPC_URL    https JSON-RPC URL of a Sepolia node\n\
+  PROTOCOL_AAVE_POOL  Aave V3 Sepolia Pool address from Aave's official address book\n\
+Other chains (including mainnet) are refused."
+    )]
+    Account {
+        /// 0x address to inspect
+        address: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
