@@ -13,6 +13,8 @@ pub mod manifest;
 pub mod risk;
 pub mod runtime;
 pub mod sandbox;
+#[cfg(target_os = "linux")]
+pub mod seccomp;
 pub mod sha256;
 pub mod store;
 pub mod strategy;

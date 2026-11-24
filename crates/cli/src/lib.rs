@@ -546,7 +546,7 @@ only build code you trust."
             let rustup = std::env::var_os("RUSTUP_HOME").map(PathBuf::from);
             let be =
                 sandbox::build_environment(home.as_deref(), cargo.as_deref(), rustup.as_deref());
-            let bwrap = sandbox::prepare_build(sandbox, &canon, &be)
+            let sb = sandbox::prepare_build(sandbox, &canon, &be)
                 .map_err(E::Fail)?
                 .ok_or_else(|| E::Fail("sandbox unavailable".into()))?;
             outln!(
@@ -554,7 +554,7 @@ only build code you trust."
                 "sandbox: on (network allowed for dependencies; no access to your files except this \
 project directory; needs bubblewrap)"
             );
-            let mut c = Command::new(bwrap);
+            let mut c = sb.command();
             c.args(sandbox::bwrap_build_args(&canon, &be))
                 .args(["--", "/bin/sh", "-c", cmd]);
             c

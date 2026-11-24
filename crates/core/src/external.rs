@@ -38,8 +38,8 @@ pub struct ExternalStrategy {
     dir: PathBuf,
     timeout: Duration,
     memory_limit_mb: u64,
-    /// Path to `bwrap` when the sandbox is on.
-    sandbox: Option<PathBuf>,
+    /// The sandbox (bwrap + seccomp filter) when it is on.
+    sandbox: Option<crate::sandbox::Sandbox>,
 }
 
 /// CPU-seconds limit for one tick: the wall-clock timeout rounded up, plus one second.
@@ -93,14 +93,14 @@ fn base_command(
     args: &[String],
     cpu_secs: u64,
     memory_mb: u64,
-    sandbox: Option<(&Path, &Path)>,
+    sandbox: Option<(&crate::sandbox::Sandbox, &Path)>,
 ) -> Command {
     use std::os::unix::process::CommandExt;
     // With a sandbox: bwrap <isolation options> -- /bin/sh -c <wrapper> <program> <args>.
     // The limits are applied by the shell *inside* the sandbox, right before exec.
     let mut cmd = match sandbox {
-        Some((bwrap, dir)) => {
-            let mut c = Command::new(bwrap);
+        Some((sb, dir)) => {
+            let mut c = sb.command();
             c.args(crate::sandbox::bwrap_args(dir))
                 .arg("--")
                 .arg("/bin/sh");
@@ -123,7 +123,7 @@ fn base_command(
     args: &[String],
     _cpu_secs: u64,
     _memory_mb: u64,
-    _sandbox: Option<(&Path, &Path)>,
+    _sandbox: Option<(&crate::sandbox::Sandbox, &Path)>,
 ) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args);
@@ -185,7 +185,7 @@ impl ExternalStrategy {
             &self.args,
             cpu_limit_secs(self.timeout),
             self.memory_limit_mb,
-            self.sandbox.as_deref().map(|b| (b, self.dir.as_path())),
+            self.sandbox.as_ref().map(|b| (b, self.dir.as_path())),
         )
         .current_dir(&self.dir)
         .env_clear()
@@ -825,5 +825,30 @@ mod tests {
         assert!(err.contains("timed out"), "{err}");
         let _ = fs::remove_dir_all(&d);
         let _ = fs::remove_dir_all(&d2);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandbox_denies_dangerous_syscalls_but_ordinary_code_runs() {
+        if Command::new("python3").arg("--version").output().is_err() {
+            eprintln!("skipping: python3 not installed");
+            return;
+        }
+        // ptrace(PTRACE_TRACEME) must fail with EPERM (1) under the seccomp deny-list
+        let script = "python3 -c \"import ctypes; l = ctypes.CDLL(None, use_errno=True); \
+r = l.ptrace(0, 0, 0, 0); print('LOG ptrace=%d/%d' % (r, ctypes.get_errno()))\"\n\
+echo 'LOG ordinary=ok'\necho DONE\n";
+        let (d, m) = script_dir("sandbox-seccomp", script, 5000);
+        let Some(mut s) = sandboxed(&m, &d) else {
+            return;
+        };
+        let out = tick(&mut s).unwrap();
+        assert_eq!(
+            out.logs,
+            vec!["ptrace=-1/1", "ordinary=ok"],
+            "{:?}",
+            out.logs
+        );
+        let _ = fs::remove_dir_all(&d);
     }
 }

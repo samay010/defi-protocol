@@ -30,3 +30,7 @@ loudly-announced opt-out. The strategy cannot loosen it: the flag is the user's,
 - The strategy directory is read-only, so a strategy cannot write beside itself; `/tmp` is writable but private and discarded.
 - No seccomp syscall filter yet; a kernel or `bwrap` bug would defeat the sandbox.
 - Isolation tests run only where `bwrap` works and are skipped elsewhere (CI installs it).
+- A seccomp deny-list is loaded into the sandbox (`bwrap --seccomp`), compiled with the
+  `seccompiler` crate (rust-vmm) from `libc` syscall numbers. Deny-list rather than allow-list so
+  JVM/CPython/Rust strategies keep working; denied calls return `EPERM`. Dependencies are
+  Linux-only and live in `protocol-core`.

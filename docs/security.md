@@ -40,7 +40,10 @@ and operational assessments are complete.
 1. **The OS sandbox is Linux-only, depends on `bubblewrap`, and has not been independently
    reviewed.** By default (`--sandbox require`) an external strategy runs inside `bwrap`: no
    network, no view of your home or other files (read-only system dirs and its own read-only
-   directory only), private `/tmp`, own PID/IPC/UTS/user namespaces. If `bwrap` is missing or the
+   directory only), private `/tmp`, own PID/IPC/UTS/user namespaces, and a seccomp deny-list that refuses
+   dangerous syscalls (ptrace, mount, bpf, io_uring, perf_event_open, keyrings, kernel modules,
+   namespace changes, clock changes; see `crates/core/src/seccomp.rs`). The list is a deny-list, so a
+   syscall not on it is still allowed: it shrinks the kernel attack surface, it is not a full policy. If `bwrap` is missing or the
    host forbids user namespaces, the strategy does **not** run (fail closed). `--sandbox off`
    runs it as an ordinary child process of your user, where a malicious strategy could read your
    files, use the network, or fork background processes; the CLI prints `sandbox: OFF` then.

@@ -3100,6 +3100,8 @@ dependencies = [
 name = "protocol-core"
 version = "0.1.0"
 dependencies = [
+ "libc",
+ "seccompiler",
  "serde",
  "sha2 0.11.1",
  "toml",
@@ -3638,6 +3640,15 @@ dependencies = [
  "serdect",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "seccompiler"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4ae55de56877481d112a559bbc12667635fdaf5e005712fd4e2b2fa50ffc884"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

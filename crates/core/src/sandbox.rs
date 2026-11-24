@@ -6,7 +6,9 @@
 //! - sees **no home directory and none of your files**: only a read-only view of the system
 //!   directories (`/usr`, `/bin`, `/lib*`, a few `/etc` entries), its own directory (read-only),
 //!   a private empty `/tmp`, and `/proc` + `/dev` of its own namespaces,
-//! - runs in its own PID, IPC, UTS and user namespaces and dies with the supervisor.
+//! - runs in its own PID, IPC, UTS and user namespaces and dies with the supervisor,
+//! - cannot call a deny-list of dangerous syscalls (ptrace, mount, bpf, io_uring, ...), see
+//!   [`crate::seccomp`].
 //!
 //! A **build** (`protocol build`) gets the same file isolation but keeps the network (compilers
 //! fetch dependencies) and may write to its own directory; see [`bwrap_build_args`].
@@ -210,18 +212,67 @@ pub fn bwrap_build_args(dir: &Path, be: &BuildEnv) -> Vec<String> {
     a
 }
 
-fn probe(args: Vec<String>) -> Result<PathBuf, String> {
+/// A usable sandbox: the `bwrap` binary plus the seccomp filter file it loads. The filter file
+/// is removed when this value is dropped.
+#[derive(Debug)]
+pub struct Sandbox {
+    bwrap: PathBuf,
+    filter: PathBuf,
+}
+
+impl Drop for Sandbox {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.filter);
+    }
+}
+
+/// `sh` helper that opens the filter file as fd 3 and then execs the rest of its arguments.
+const FD3_LAUNCHER: &str = "f=$1; shift; exec \"$@\" 3<\"$f\"";
+
+impl Sandbox {
+    /// A command that starts `bwrap` with the seccomp filter attached (`--seccomp 3`). The caller
+    /// adds the isolation options, `--`, and the program to run.
+    pub fn command(&self) -> Command {
+        let mut c = Command::new("/bin/sh");
+        c.arg("-c")
+            .arg(FD3_LAUNCHER)
+            .arg("sh")
+            .arg(&self.filter)
+            .arg(&self.bwrap)
+            .args(["--seccomp", "3"]);
+        c
+    }
+
+    pub fn bwrap(&self) -> &Path {
+        &self.bwrap
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn write_filter() -> Result<PathBuf, String> {
+    crate::seccomp::write_filter_file()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn write_filter() -> Result<PathBuf, String> {
+    Err("the sandbox is only available on Linux".into())
+}
+
+fn probe(args: Vec<String>) -> Result<Sandbox, String> {
     let bwrap = find_bwrap().ok_or_else(|| {
         format!("sandbox required but `bwrap` (bubblewrap) was not found: {INSTALL_HINT}")
     })?;
-    let out = Command::new(&bwrap)
+    let filter = write_filter()?;
+    let sb = Sandbox { bwrap, filter };
+    let out = sb
+        .command()
         .args(args)
         .args(["--", "/bin/sh", "-c", "exit 0"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|e| format!("cannot start {}: {e}", bwrap.display()))?;
+        .map_err(|e| format!("cannot start {}: {e}", sb.bwrap.display()))?;
     if !out.status.success() {
         return Err(format!(
             "the sandbox could not start ({}): {}. The host may forbid unprivileged user namespaces; \
@@ -230,11 +281,11 @@ or pass `--sandbox off` to run without a sandbox",
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    Ok(bwrap)
+    Ok(sb)
 }
 
 /// Locate `bwrap` and prove it works here (user namespaces can be disabled by the host).
-pub fn prepare(mode: SandboxMode, dir: &Path) -> Result<Option<PathBuf>, String> {
+pub fn prepare(mode: SandboxMode, dir: &Path) -> Result<Option<Sandbox>, String> {
     match mode {
         SandboxMode::Off => Ok(None),
         SandboxMode::Require => probe(bwrap_args(dir)).map(Some),
@@ -246,7 +297,7 @@ pub fn prepare_build(
     mode: SandboxMode,
     dir: &Path,
     be: &BuildEnv,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<Option<Sandbox>, String> {
     match mode {
         SandboxMode::Off => Ok(None),
         SandboxMode::Require => probe(bwrap_build_args(dir, be)).map(Some),
@@ -313,7 +364,10 @@ mod tests {
 
     #[test]
     fn off_needs_nothing_and_require_fails_closed_without_bwrap() {
-        assert_eq!(prepare(SandboxMode::Off, Path::new("/tmp")), Ok(None));
+        assert!(matches!(
+            prepare(SandboxMode::Off, Path::new("/tmp")),
+            Ok(None)
+        ));
         if find_bwrap().is_none() {
             let e = prepare(SandboxMode::Require, Path::new("/tmp")).unwrap_err();
             assert!(
