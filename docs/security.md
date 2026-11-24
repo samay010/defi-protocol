@@ -93,3 +93,10 @@ a shared, signed registry is proposed work.
 
 Please report privately to the maintainers before public disclosure. (Contact channel: to be set
 when the public repository is created.)
+
+## Live testnet data (read-only)
+`protocol aave account` and `protocol watch` read an Aave account from a Sepolia node. They use a
+single `eth_call`; there is no signing, no transaction sending and no key anywhere. The RPC URL
+comes from `PROTOCOL_RPC_URL` only and is removed from error messages; any chain other than
+Sepolia is refused. `watch` runs strategies in manual mode, so fund-moving proposals are never
+executed. Strategies themselves still have no network access (sandbox).

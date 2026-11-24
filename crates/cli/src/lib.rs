@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use protocol_adapter_aave::onchain::{AaveReader, AccountData, Address};
+use protocol_adapter_aave::chain::AaveChainRead;
+use protocol_adapter_aave::onchain::{AaveReader, AccountData, Address, EthCall};
 use protocol_adapter_aave::AaveSim;
 use protocol_core::adapter::{Account, ProtocolAdapter};
 use protocol_core::amount::{format_amount, parse_amount};
@@ -177,6 +178,12 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
         } => cmd_act(instance, kind, asset, amount, protocol, store, out),
         Cmd::KillSwitch { which } => cmd_kill_switch(which, store, out),
         Cmd::Aave(AaveCmd::Account { address }) => cmd_aave_account(address, out),
+        Cmd::Watch {
+            strategy,
+            account,
+            ticks,
+            interval_ms,
+        } => cmd_watch(strategy, account, ticks, interval_ms, sandbox, store, out),
     }
 }
 
@@ -323,12 +330,28 @@ fn simulate_core(
     sandbox: SandboxMode,
     emit: &mut dyn FnMut(&str),
 ) -> Result<SimResult, String> {
-    let mut strategy = make_strategy(res, sandbox)?;
     let adapter = Box::new(AaveSim::new(scenario, AaveSim::demo_account()));
-    let mut engine = Engine::new(adapter, res.manifest.policy(), mode, Network::Simulation);
+    let engine = Engine::new(adapter, res.manifest.policy(), mode, Network::Simulation);
+    drive(engine, res, ticks, Duration::ZERO, sandbox, emit)
+}
+
+/// Run `ticks` ticks of a strategy against an already built engine (simulated or live
+/// read-only), waiting `interval` between ticks.
+fn drive(
+    mut engine: Engine,
+    res: &Resolved,
+    ticks: u64,
+    interval: Duration,
+    sandbox: SandboxMode,
+    emit: &mut dyn FnMut(&str),
+) -> Result<SimResult, String> {
+    let mut strategy = make_strategy(res, sandbox)?;
     let mut state = BTreeMap::new();
     let mut r = SimResult::default();
     for tick in 1..=ticks {
+        if tick > 1 && !interval.is_zero() {
+            std::thread::sleep(interval);
+        }
         let rep = step(
             &mut engine,
             strategy.as_mut(),
@@ -354,7 +377,11 @@ fn simulate_core(
         }
     }
     r.total_moved = engine.total_moved;
-    r.final_hf = engine.adapter.snapshot(ticks)?.health_factor();
+    r.final_hf = engine
+        .adapter
+        .snapshot(ticks)
+        .ok()
+        .and_then(|s| s.health_factor());
     r.account = engine.adapter.account().clone();
     Ok(r)
 }
@@ -1103,15 +1130,85 @@ fn env_required(name: &str) -> Result<String, E> {
     }
 }
 
-fn cmd_aave_account(address: String, out: &mut dyn Write) -> R {
-    // validate the input first: a typo must not need the network or any secret
-    let user = Address::parse(&address).map_err(|e| E::Fail(e.to_string()))?;
+/// Connect to the testnet node and Pool named by the environment (read-only).
+fn aave_reader_from_env() -> Result<AaveReader<impl EthCall>, E> {
     let url = env_required(protocol_rpc::ENV_RPC_URL)?;
     let pool_text = env_required(protocol_rpc::ENV_POOL)?;
     let pool = Address::parse(&pool_text)
         .map_err(|e| E::Fail(format!("{}: {e}", protocol_rpc::ENV_POOL)))?;
     let transport = protocol_rpc::connect(&url).map_err(|e| E::Fail(e.to_string()))?;
-    let reader = AaveReader::new(transport, pool);
+    Ok(AaveReader::new(transport, pool))
+}
+
+fn cmd_watch(
+    name: String,
+    account: String,
+    ticks: u64,
+    interval_ms: u64,
+    sandbox: SandboxMode,
+    store: &Store,
+    out: &mut dyn Write,
+) -> R {
+    // validate all input before anything touches the environment, the network or a strategy
+    let user = Address::parse(&account).map_err(|e| E::Fail(e.to_string()))?;
+    if ticks == 0 {
+        return usage("--ticks must be at least 1");
+    }
+    if interval_ms < 1_000 {
+        return usage("--interval-ms must be at least 1000 (be gentle with RPC providers)");
+    }
+    let r = resolve(store, &name)?;
+    let reader = aave_reader_from_env()?;
+    let chain = AaveChainRead::new(reader, user)?;
+    outln!(
+        out,
+        "watching {} on Aave V3 Sepolia (live, read-only): account {}",
+        r.manifest.name,
+        user.to_hex()
+    );
+    outln!(
+        out,
+        "manual mode: fund-moving proposals are only suggested, never executed. Nothing is saved."
+    );
+    outln!(
+        out,
+        "view: aggregate USD totals (pseudo-asset USD, no per-token rates); health factor follows Aave's definition."
+    );
+    print_trust_banner(&r, out);
+    print_sandbox_line(&r, sandbox, out);
+    let engine = Engine::new(
+        Box::new(chain),
+        r.manifest.policy(),
+        Mode::Manual,
+        Network::Testnet,
+    );
+    let s = drive(
+        engine,
+        &r,
+        ticks,
+        Duration::from_millis(interval_ms),
+        sandbox,
+        &mut |l| outln!(out, "{l}"),
+    )?;
+    outln!(
+        out,
+        "\nsummary: {} suggested, {} alerts, {} denied, {} errors (nothing executed: read-only)",
+        s.suggested,
+        s.alerts,
+        s.denied.len(),
+        s.errors.len()
+    );
+    match s.final_hf {
+        Some(hf) => outln!(out, "final health factor: {hf:.3}"),
+        None => outln!(out, "final health factor: n/a (no debt)"),
+    }
+    Ok(if s.errors.is_empty() { 0 } else { 1 })
+}
+
+fn cmd_aave_account(address: String, out: &mut dyn Write) -> R {
+    // validate the input first: a typo must not need the network or any secret
+    let user = Address::parse(&address).map_err(|e| E::Fail(e.to_string()))?;
+    let reader = aave_reader_from_env()?;
     let data = reader
         .account_data(&user)
         .map_err(|e| E::Fail(e.to_string()))?;

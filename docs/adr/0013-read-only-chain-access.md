@@ -56,3 +56,14 @@ address book for the chosen testnet; with none configured the protocol stays on 
   `.cargo/audit.toml` with a removal condition: drop both when alloy moves off it.
 - Added permissive licenses to `deny.toml` (ISC, BSD-3-Clause, MIT-0, CDLA-Permissive-2.0, Zlib),
   all from the TLS stack and small utility crates; copyleft (LGPL) is not allowed.
+
+## Live read-only mode (`protocol watch`)
+`AaveChainRead` (adapter-aave) feeds live Sepolia data to a strategy without any way to act:
+`execute` and every non-alert `simulate` are errors, `protocol watch` forces manual mode (fund
+proposals are only suggested) and the engine runs with `Network::Testnet`, where execution is
+"not implemented". `getUserAccountData` returns totals only, so the strategy sees an aggregate
+view with one pseudo-asset `USD` (collateral, debt, average liquidation threshold). Aave defines
+health factor as collateral x average threshold / debt, so the strategy's health factor matches
+the protocol's up to micro-USD rounding. Strategies that need per-token rates or prices see no
+such data in this mode. Nothing is saved (no instance, no store changes). The poll interval is at
+least 1 s.

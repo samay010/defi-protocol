@@ -67,6 +67,21 @@ pub enum Cmd {
         #[arg(long)]
         mode: Option<String>,
     },
+    /// Run a strategy on LIVE read-only Aave testnet data (nothing executed, nothing saved)
+    #[command(
+        after_help = "Reads the account's Aave V3 totals from a Sepolia node every tick and feeds them to the strategy as an aggregate USD view (one pseudo-asset `USD`; no per-token rates). Runs in manual mode: fund-moving proposals are only suggested, never executed. Needs PROTOCOL_RPC_URL and PROTOCOL_AAVE_POOL (see `protocol aave account --help`)."
+    )]
+    Watch {
+        strategy: String,
+        /// 0x address of the account to watch
+        #[arg(long)]
+        account: String,
+        #[arg(long, default_value_t = 5)]
+        ticks: u64,
+        /// Milliseconds between reads (minimum 1000, be gentle with RPC providers)
+        #[arg(long, default_value_t = 5000)]
+        interval_ms: u64,
+    },
     /// Show a strategy's content hash; --pin records it as reviewed
     Verify {
         /// Strategy directory

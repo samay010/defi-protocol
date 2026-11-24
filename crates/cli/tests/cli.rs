@@ -1147,3 +1147,37 @@ fn aave_account_needs_an_address_and_is_documented_in_help() {
     assert!(help.contains("PROTOCOL_AAVE_POOL"), "{help}");
     assert!(help.contains("mainnet"), "{help}");
 }
+
+#[test]
+fn watch_validates_input_before_env_network_or_strategy() {
+    let c = Cli::new("watch-validate");
+    let good = "0x1111111111111111111111111111111111111111";
+    // --account is required
+    assert_eq!(c.run(&["watch", "health-monitor"]).code, 2);
+    // bad address: failure, no env needed
+    let r = c.run(&["watch", "health-monitor", "--account", "nonsense"]);
+    assert_eq!(r.code, 1, "{}{}", r.out, r.err);
+    assert!(r.err.contains("bad address"), "{}", r.err);
+    // zero ticks and a too-fast interval are usage errors (exit 2)
+    let r = c.run(&["watch", "health-monitor", "--account", good, "--ticks", "0"]);
+    assert_eq!(r.code, 2, "{}{}", r.out, r.err);
+    let r = c.run(&[
+        "watch",
+        "health-monitor",
+        "--account",
+        good,
+        "--interval-ms",
+        "10",
+    ]);
+    assert_eq!(r.code, 2, "{}{}", r.out, r.err);
+    assert!(r.err.contains("1000"), "{}", r.err);
+}
+
+#[test]
+fn watch_is_documented_in_help() {
+    let c = Cli::new("watch-help");
+    let help = c.ok(&["watch", "--help"]);
+    assert!(help.contains("read-only"), "{help}");
+    assert!(help.contains("PROTOCOL_RPC_URL"), "{help}");
+    assert!(help.contains("never executed"), "{help}");
+}

@@ -6,6 +6,7 @@
 //! end (brief section 15: simulation-only first). A real read-only adapter is Phase 2 work,
 //! see `docs/roadmap.md`.
 
+pub mod chain;
 pub mod onchain;
 
 use std::collections::BTreeMap;
