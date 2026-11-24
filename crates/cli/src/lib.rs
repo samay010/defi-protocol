@@ -526,6 +526,8 @@ fn cmd_build(name: String, sandbox: SandboxMode, store: &Store, out: &mut dyn Wr
         dir.display()
     );
     outln!(out, "$ {cmd}");
+    // Keeps the sandbox (and its seccomp filter file) alive until the build has finished.
+    let mut _sandbox_guard: Option<sandbox::Sandbox> = None;
     let mut command = match sandbox {
         SandboxMode::Off => {
             outln!(
@@ -557,6 +559,7 @@ project directory; needs bubblewrap)"
             let mut c = sb.command();
             c.args(sandbox::bwrap_build_args(&canon, &be))
                 .args(["--", "/bin/sh", "-c", cmd]);
+            _sandbox_guard = Some(sb);
             c
         }
     };
