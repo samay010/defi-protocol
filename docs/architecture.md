@@ -88,7 +88,7 @@ run" and "apply it now" by whether it can take the lock. See ADR 0008.
 
 ## Not built yet (proposed)
 
-Real read-only Aave data, other protocol adapters (Compound, Morpho), event-driven monitoring,
-WASM/WASI runtime, sandboxing `build`, a seccomp filter and a macOS sandbox, real transaction simulation,
+Other protocol adapters (Compound, Morpho), event-driven monitoring,
+WASM/WASI runtime, a macOS sandbox, real transaction simulation,
 user-controlled signing in a separate process, backtesting, dashboard, marketplace and
 decentralized execution. See `docs/roadmap.md`.

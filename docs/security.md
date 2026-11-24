@@ -52,8 +52,10 @@ and operational assessments are complete.
    none of your other files. Because the whole project directory is writable during a build, a
    build script can modify the source: pinned strategies detect this through the verification
    hash. A build can still download and run arbitrary dependency code and use the network, so
-   read the source and dependencies before building. Not covered: macOS/Windows (no sandbox
-   available: use `--sandbox off` knowingly), kernel or `bwrap` vulnerabilities. Strategies can
+   read the source and dependencies before building. Not covered: macOS/Windows (there is no
+   sandbox there yet, so the default `--sandbox require` refuses to run external strategies and
+   builds with a message saying so; `--sandbox off` runs them with your user's full access,
+   knowingly; built-in strategies are unaffected), kernel or `bwrap` vulnerabilities. Strategies can
    still burn CPU within the limits and, through the line protocol, propose actions (which the
    risk engine checks). **Do not run strategies you have not read.**
 2. **Resource limits are partial.** Memory is limited only if the manifest sets `max_memory_mb`

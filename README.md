@@ -62,9 +62,10 @@ State is stored in `~/.protocol` (override with `--home DIR` or `$PROTOCOL_HOME`
 | Verification pins (content hash of reviewed source) | implemented |
 | Official strategies: stable-lending, health-factor-monitor, rate-monitor | implemented (simulation) |
 | Simulated Aave adapter | implemented (synthetic data) |
-| Real read-only Aave data | **proposed** (Phase 2) |
+| Real read-only Aave data (Sepolia testnet, `eth_call` only) | implemented (health factor and USD scales confirmed; ltv/threshold unmatched) |
 | OS sandbox for external strategies (bubblewrap, Linux) | implemented, not independently reviewed |
-| WASM runtime, sandboxed `build`, macOS sandbox | **proposed** |
+| Sandboxed `build` and seccomp deny-list (Linux) | implemented, not independently reviewed |
+| WASM runtime, macOS sandbox | **proposed** |
 | Real transaction simulation, signing, wallets, testnet | **proposed** |
 | Backtesting, dashboard, marketplace, decentralized execution | **proposed** |
 

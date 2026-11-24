@@ -13,14 +13,15 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 4. **Disk state.** Files under the data directory are trusted only as far as the user owns them.
    Atomic writes; the lock file is the truth for "running".
 5. **Third-party dependencies:** `sha2` (hashing for pinning), `clap` (arguments), `serde` + `toml`
-   (manifest syntax), and the external `bubblewrap` binary (isolation).
+   (manifest syntax), `libc` + `seccompiler` (syscall deny-list, Linux only), `alloy` + `tokio`
+   (read-only RPC, `crates/rpc` only), and the external `bubblewrap` binary (isolation).
 
 ## Modules by sensitivity
 
 | Priority | Module | Why |
 |---|---|---|
 | Critical | `risk.rs`, `engine.rs` | deny-by-default checks, exposure caps, mode and kill-switch rules, re-check at approval |
-| Critical | `external.rs`, `sandbox.rs`, `manifest.rs` | parse untrusted input; spawn processes; isolation; limits |
+| Critical | `external.rs`, `sandbox.rs`, `seccomp.rs`, `manifest.rs` | parse untrusted input; spawn processes; isolation (files, network, syscalls); limits |
 | High | `store.rs`, `supervisor.rs` | locking, kill switch, command inbox, restart logic |
 | High | `hash.rs` + `sha2` | what "verified" is bound to |
 | Medium | `adapter.rs`, adapter-aave | balance math, health factor |
@@ -39,8 +40,11 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 
 - Process limits are accident containment. Isolation comes from `sandbox.rs`, which only builds a
   `bubblewrap` command line; it is Linux-only and `--sandbox off` removes it. `protocol build`
-  is not sandboxed. A reviewer should check the exposed paths in `bwrap_args` and the fail-closed
-  logic in `prepare`.
+  runs in a variant with the network open and the project directory writable, so a build can
+  still use the network and modify its own source. The seccomp filter is a deny-list (a syscall
+  not on it is allowed). macOS and Windows have no sandbox: the default refuses to run external
+  strategies there. A reviewer should check the exposed paths in `bwrap_args` and
+  `bwrap_build_args`, the `DENIED` list in `seccomp.rs`, and the fail-closed logic in `prepare`.
 - Unix only.
 - The Aave adapter is a simulation with synthetic data. `adapter-aave/src/onchain.rs` is a
   read-only ABI layer (no I/O, no keys, cannot sign or send); health factor (1e18) and base-currency (USD, 1e8) scales are confirmed from Aave's

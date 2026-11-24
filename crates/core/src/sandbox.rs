@@ -258,7 +258,14 @@ fn write_filter() -> Result<PathBuf, String> {
     Err("the sandbox is only available on Linux".into())
 }
 
+/// Shown instead of the install hint on systems where bubblewrap cannot exist.
+const NO_SANDBOX_HERE: &str = "the OS sandbox (bubblewrap) is Linux-only and this system has none yet, so the strategy was not run; \
+pass `--sandbox off` to run it with your user's full file and network access, knowingly (see docs/security.md)";
+
 fn probe(args: Vec<String>) -> Result<Sandbox, String> {
+    if !cfg!(target_os = "linux") {
+        return Err(NO_SANDBOX_HERE.to_string());
+    }
     let bwrap = find_bwrap().ok_or_else(|| {
         format!("sandbox required but `bwrap` (bubblewrap) was not found: {INSTALL_HINT}")
     })?;
