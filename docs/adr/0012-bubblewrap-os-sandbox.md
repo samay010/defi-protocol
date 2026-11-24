@@ -23,7 +23,10 @@ loudly-announced opt-out. The strategy cannot loosen it: the flag is the user's,
 ## Consequences
 - Needs `bubblewrap` installed (`sudo apt install bubblewrap`) and user namespaces enabled.
 - Linux only. On macOS and Windows users must pass `--sandbox off`.
-- `protocol build` stays unsandboxed (compilers need network and write access): documented.
+- `protocol build` runs in a variant of the sandbox (added later): network shared so dependencies
+  can be fetched, the project directory writable, the Rust toolchain read-only, a private home
+  and a cleared environment. The network stays open for builds, so a malicious dependency can
+  still exfiltrate what the build can see (the project directory); it cannot see your other files.
 - The strategy directory is read-only, so a strategy cannot write beside itself; `/tmp` is writable but private and discarded.
 - No seccomp syscall filter yet; a kernel or `bwrap` bug would defeat the sandbox.
 - Isolation tests run only where `bwrap` works and are skipped elsewhere (CI installs it).

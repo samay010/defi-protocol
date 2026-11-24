@@ -16,7 +16,7 @@ dependency is `sha2` (ADR 0009).
 | Unit | `crates/core/src/*` | amounts (fixed point), kv files, SHA-256 against NIST vectors, manifest parsing and rejection, risk rules, engine modes, supervisor lifecycle, store persistence, process runner (timeout, env cleared, output cap, strict parser) |
 | Adapter | `crates/adapter-aave` | determinism, APY band, calm/stress health factor, protocol withdrawal rule, simulate-doesn't-mutate |
 | Strategies | `crates/strategies` | each official strategy's decisions and permission manifests |
-| End-to-end | `crates/cli/tests/cli.rs` | real CLI commands: approval flow, manual actions, kill switch, network refusal, live pause/resume/stop, verification pinning lifecycle, shadowing protection, external strategies bound by their manifests, restart/failure marking, timeouts, state on disk, and **create -> build -> test -> simulate -> run for Rust, Python, C, C++ and Java using the real toolchains** |
+| End-to-end | `crates/cli/tests/cli.rs` | real CLI commands: approval flow, manual actions, kill switch, network refusal, live pause/resume/stop, verification pinning lifecycle, shadowing protection, external strategies bound by their manifests, restart/failure marking, timeouts, state on disk, and **sandboxed build that cannot see your files (CI only), create -> build -> test -> simulate -> run for Rust, Python, C, C++ and Java using the real toolchains** |
 
 The language tests skip themselves (with a message) when a toolchain is not installed.
 

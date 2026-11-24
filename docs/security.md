@@ -44,8 +44,12 @@ and operational assessments are complete.
    host forbids user namespaces, the strategy does **not** run (fail closed). `--sandbox off`
    runs it as an ordinary child process of your user, where a malicious strategy could read your
    files, use the network, or fork background processes; the CLI prints `sandbox: OFF` then.
-   Not covered: `protocol build` (compilers and build scripts run unsandboxed, because they need
-   network and write access, so read the source before building), macOS/Windows (no sandbox
+   `protocol build` runs in the same kind of sandbox but keeps the network (compilers fetch
+   dependencies) and may write to the project directory; it sees the Rust toolchain read-only and
+   none of your other files. Because the whole project directory is writable during a build, a
+   build script can modify the source: pinned strategies detect this through the verification
+   hash. A build can still download and run arbitrary dependency code and use the network, so
+   read the source and dependencies before building. Not covered: macOS/Windows (no sandbox
    available: use `--sandbox off` knowingly), kernel or `bwrap` vulnerabilities. Strategies can
    still burn CPU within the limits and, through the line protocol, propose actions (which the
    risk engine checks). **Do not run strategies you have not read.**

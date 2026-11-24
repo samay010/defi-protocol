@@ -10,7 +10,7 @@ before 1.0.
 | `strategies list` | Official strategies and local ones in `./custom-strategies` with trust tier |
 | `strategies info <name\|dir>` | Permissions, parameters, trust tier, content hash, docs (built-ins) |
 | `create <name> --lang L [--dir D]` | Scaffold an alert-only strategy (default dir `./custom-strategies`) |
-| `build <name\|dir>` | Compile or check using the language's fixed build command |
+| `build <name\|dir>` | Compile or check using the language's fixed build command, in the sandbox (network on for dependencies, only the project directory writable); `--sandbox off` to opt out |
 | `test <name\|dir> [--ticks N]` | Run in `calm` and `stress` scenarios (default 12 ticks); fails on errors |
 | `simulate <name\|dir> [--ticks N] [--scenario S] [--mode M]` | In-memory run, prints each tick, saves nothing |
 | `verify <dir> [--pin]` | Print content hash and permissions; `--pin` records the exact source as reviewed |

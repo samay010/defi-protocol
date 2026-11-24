@@ -671,6 +671,54 @@ fn build_failure_is_reported() {
 }
 
 #[test]
+fn build_is_sandboxed_and_cannot_see_your_files() {
+    if !have("cc") {
+        return;
+    }
+    let c = Cli::new("build-sandbox");
+    let base = c.work.to_string_lossy().to_string();
+    c.ok(&["create", "boxed-build", "--lang", "c", "--dir", &base]);
+    // a file of "yours" outside the project; the C preprocessor fails the build if it can see it
+    let secret_dir = c.work.join("your-files");
+    fs::create_dir_all(&secret_dir).unwrap();
+    let secret = secret_dir.join("keys.txt");
+    fs::write(&secret, "not for builds").unwrap();
+    fs::write(
+        c.work.join("boxed-build/strategy.c"),
+        format!(
+            "#if __has_include(\"{}\")\n#error host file is readable from the build\n#endif\nint main(void) {{ return 0; }}\n",
+            secret.display()
+        ),
+    )
+    .unwrap();
+    let dir = c.dir("boxed-build");
+
+    // control: without the sandbox the build sees the file, so this must fail
+    let off = c.run_with(&["--sandbox", "off"], &["build", &dir]);
+    assert_eq!(off.code, 1, "control must leak: {}{}", off.out, off.err);
+    assert!(off.out.contains("sandbox: OFF"), "{}", off.out);
+
+    let r = c.run_with(&[], &["build", &dir]);
+    let strict = std::env::var("PROTOCOL_REQUIRE_SANDBOX_TESTS").is_ok_and(|v| !v.is_empty());
+    match r.code {
+        0 => {
+            assert!(r.out.contains("sandbox: on"), "{}", r.out);
+            assert!(r.out.contains("build ok"), "{}", r.out);
+            // output is written into the project directory
+            assert!(c.work.join("boxed-build/build/strategy").is_file());
+        }
+        1 if strict => panic!("sandboxed build failed in CI: {}{}", r.out, r.err),
+        1 => assert!(
+            r.err.contains("sandbox") && r.err.contains("--sandbox off"),
+            "must fail closed with a hint: {}{}",
+            r.out,
+            r.err
+        ),
+        other => panic!("unexpected exit {other}: {}{}", r.out, r.err),
+    }
+}
+
+#[test]
 fn verification_pinning_lifecycle() {
     let c = Cli::new("verify");
     let dir = c.script_strategy("pinme", "", "cat >/dev/null\necho 'LOG hi'\necho DONE\n");

@@ -21,7 +21,7 @@ use protocol_core::amount::{format_amount, parse_amount};
 use protocol_core::engine::{Engine, Outcome};
 use protocol_core::manifest::{valid_name, Language};
 use protocol_core::runtime::step;
-use protocol_core::sandbox::SandboxMode;
+use protocol_core::sandbox::{self, SandboxMode};
 use protocol_core::store::{Instance, Store};
 use protocol_core::supervisor::{self, RunConfig};
 use protocol_core::types::{Action, ActionKind, Mode, Network, Scenario, Status};
@@ -124,7 +124,7 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
         }
         Cmd::Strategies(sub) => cmd_strategies(sub, store, out),
         Cmd::Create { name, lang, dir } => cmd_create(name, lang, dir, out),
-        Cmd::Build { strategy } => cmd_build(strategy, store, out),
+        Cmd::Build { strategy } => cmd_build(strategy, sandbox, store, out),
         Cmd::Test { strategy, ticks } => cmd_test(strategy, ticks, sandbox, store, out),
         Cmd::Simulate {
             strategy,
@@ -507,7 +507,7 @@ fn cmd_create(name: String, lang: Option<String>, dir: Option<PathBuf>, out: &mu
     Ok(0)
 }
 
-fn cmd_build(name: String, store: &Store, out: &mut dyn Write) -> R {
+fn cmd_build(name: String, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) -> R {
     let r = resolve(store, &name)?;
     let Source::External(dir) = &r.source else {
         outln!(
@@ -526,14 +526,41 @@ fn cmd_build(name: String, store: &Store, out: &mut dyn Write) -> R {
         dir.display()
     );
     outln!(out, "$ {cmd}");
-    outln!(
-        out,
-        "note: building runs this project's own toolchain; only build code you trust."
-    );
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .current_dir(dir)
+    let mut command = match sandbox {
+        SandboxMode::Off => {
+            outln!(
+                out,
+                "sandbox: OFF. The build runs with your user's full file and network access; \
+only build code you trust."
+            );
+            let mut c = Command::new("sh");
+            c.arg("-c").arg(cmd).current_dir(dir);
+            c
+        }
+        SandboxMode::Require => {
+            let canon = dir
+                .canonicalize()
+                .map_err(|e| format!("cannot resolve {}: {e}", dir.display()))?;
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let cargo = std::env::var_os("CARGO_HOME").map(PathBuf::from);
+            let rustup = std::env::var_os("RUSTUP_HOME").map(PathBuf::from);
+            let be =
+                sandbox::build_environment(home.as_deref(), cargo.as_deref(), rustup.as_deref());
+            let bwrap = sandbox::prepare_build(sandbox, &canon, &be)
+                .map_err(E::Fail)?
+                .ok_or_else(|| E::Fail("sandbox unavailable".into()))?;
+            outln!(
+                out,
+                "sandbox: on (network allowed for dependencies; no access to your files except this \
+project directory; needs bubblewrap)"
+            );
+            let mut c = Command::new(bwrap);
+            c.args(sandbox::bwrap_build_args(&canon, &be))
+                .args(["--", "/bin/sh", "-c", cmd]);
+            c
+        }
+    };
+    let output = command
         .output()
         .map_err(|e| format!("cannot run build: {e}"))?;
     let _ = out.write_all(&output.stdout);
