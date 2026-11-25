@@ -80,3 +80,16 @@ send: the only capability is `eth_call`. It reflects the account's real balances
 so a supply from an account without tokens or allowance reverts, which is the true answer. It
 says nothing about gas, later state, or whether an action is wise.
 
+## Event-driven watching (`protocol watch --on block|event`)
+`adapter-aave/src/events.rs` follows the latest block and the Pool events that touch one account,
+over plain HTTP polling (`eth_blockNumber`, `eth_getLogs`); no WebSocket, no new dependency, no
+keys. Events: `Supply` and `Borrow` (account = `onBehalfOf`, topic 2), `Withdraw` and `Repay`
+(account = `user`, topic 2), `LiquidationCall` (account = `user`, topic 3). Signatures and
+indexed fields were checked on 2026-11-25 against a copy of Aave's `IPool.sol`; the topic hashes
+were recomputed with an independent Keccak-256. The first poll only records where "now" is (no
+history is reported); a failed poll is retried over the same range; a gap above 500 blocks is
+reported as skipped, not backfilled. Limits: the watcher follows the latest block, so a reorg
+can show an event that later disappears or miss one; amounts are raw token units (the event has
+no decimals). The strategy itself is unchanged: it still sees the aggregate USD view on each tick,
+and events only decide *when* a tick happens (they are printed, not fed to the strategy).
+

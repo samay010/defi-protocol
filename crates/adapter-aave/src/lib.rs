@@ -7,6 +7,7 @@
 //! see `docs/roadmap.md`.
 
 pub mod chain;
+pub mod events;
 pub mod onchain;
 pub mod simulate;
 

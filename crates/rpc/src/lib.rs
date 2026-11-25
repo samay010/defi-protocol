@@ -2,7 +2,8 @@
 //!
 //! What this crate can do: open an HTTP provider, check the chain id against the testnet
 //! allowlist, and run `eth_call` at the latest block (optionally as if sent by an account, to
-//! preflight an action; the call is executed by the node and never broadcast). What it cannot do: sign, send
+//! preflight an action; the call is executed by the node and never broadcast), read the latest
+//! block number and read logs (`eth_getLogs`). What it cannot do: sign, send
 //! transactions or hold keys. It exposes nothing but [`EthCall`], and alloy is built here with
 //! default features off (no signer). No error from this crate contains the RPC URL (it usually
 //! carries an API key).
@@ -14,12 +15,12 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use alloy::network::TransactionBuilder;
-use alloy::primitives::{Address as RawAddress, Bytes};
+use alloy::primitives::{Address as RawAddress, Bytes, B256};
 use alloy::providers::{Provider, ProviderBuilder};
-use alloy::rpc::types::TransactionRequest;
+use alloy::rpc::types::{Filter, TransactionRequest};
 use protocol_adapter_aave::onchain::{
     bytes_to_hex, check_rpc_url, ensure_allowed_chain, hex_to_bytes, redact_url, Address,
-    ChainError, EthCall,
+    ChainError, EthCall, LogQuery, RawLog,
 };
 
 /// Environment variable holding the RPC URL (never a CLI flag or a file in the repo).
@@ -77,6 +78,70 @@ impl<P: Provider> EthCall for Http<P> {
             .with_to(RawAddress::from(to.0))
             .with_input(Bytes::from(data));
         self.call_tx(tx)
+    }
+
+    fn block_number(&self) -> Result<u64, ChainError> {
+        let fut = async { tokio::time::timeout(TIMEOUT, self.provider.get_block_number()).await };
+        self.rt
+            .block_on(fut)
+            .map_err(|_| ChainError::Transport("rpc request timed out".into()))?
+            .map_err(|e| self.scrub(e))
+    }
+
+    fn get_logs(&self, q: &LogQuery, from: u64, to: u64) -> Result<Vec<RawLog>, ChainError> {
+        let topics = |v: &Vec<String>| -> Result<Vec<B256>, ChainError> {
+            v.iter()
+                .map(|t| {
+                    let b = hex_to_bytes(t)?;
+                    if b.len() == 32 {
+                        Ok(B256::from_slice(&b))
+                    } else {
+                        Err(ChainError::BadHex("topic must be 32 bytes".into()))
+                    }
+                })
+                .collect()
+        };
+        let mut f = Filter::new()
+            .address(RawAddress::from(q.address.0))
+            .from_block(from)
+            .to_block(to);
+        if let Some(t) = &q.topics[0] {
+            f = f.event_signature(topics(t)?);
+        }
+        if let Some(t) = &q.topics[1] {
+            f = f.topic1(topics(t)?);
+        }
+        if let Some(t) = &q.topics[2] {
+            f = f.topic2(topics(t)?);
+        }
+        if let Some(t) = &q.topics[3] {
+            f = f.topic3(topics(t)?);
+        }
+        let fut = async { tokio::time::timeout(TIMEOUT, self.provider.get_logs(&f)).await };
+        let logs = self
+            .rt
+            .block_on(fut)
+            .map_err(|_| ChainError::Transport("rpc request timed out".into()))?
+            .map_err(|e| self.scrub(e))?;
+        logs.into_iter()
+            .map(|l| {
+                Ok(RawLog {
+                    block_number: l.block_number.ok_or_else(|| {
+                        ChainError::Transport("log without a block number".into())
+                    })?,
+                    log_index: l.log_index,
+                    tx_hash: l.transaction_hash.map(|h| bytes_to_hex(h.as_slice())),
+                    topics: l
+                        .inner
+                        .data
+                        .topics()
+                        .iter()
+                        .map(|t| bytes_to_hex(t.as_slice()))
+                        .collect(),
+                    data: bytes_to_hex(&l.inner.data.data),
+                })
+            })
+            .collect()
     }
 }
 

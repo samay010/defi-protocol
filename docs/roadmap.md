@@ -12,6 +12,8 @@ Rust workspace, architecture docs and ADRs, strategy interfaces (trait + line pr
 - Done: `protocol aave preflight` (real transaction simulation via `eth_call` from the account,
   Sepolia, no keys; revert reasons shown). Next: simulate strategy proposals through it, and
   `eth_call` state overrides or a fork for 'what if I had the funds'.
+- Done: event-driven `watch` (`--on block|event`: new blocks, or Pool events touching the account;
+  HTTP polling, read-only). Next: feed events to strategies (needs a line-protocol addition).
 - Next: HTTPS JSON-RPC transport behind `EthCall` (audited crates, own dependency review), an
   official testnet Pool address supplied by the user, matching a real testnet position against the Aave UI (health-factor and base-currency scales
   are already confirmed from source), then market queries, Aave rate and health-factor

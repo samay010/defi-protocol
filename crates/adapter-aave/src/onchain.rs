@@ -223,6 +223,39 @@ pub trait EthCall {
             "this transport cannot simulate calls from an account".into(),
         ))
     }
+
+    /// The latest block number (read-only).
+    fn block_number(&self) -> Result<u64, ChainError> {
+        Err(ChainError::Transport(
+            "this transport cannot read blocks or logs".into(),
+        ))
+    }
+
+    /// `eth_getLogs` over the inclusive block range `from..=to` (read-only).
+    fn get_logs(&self, _q: &LogQuery, _from: u64, _to: u64) -> Result<Vec<RawLog>, ChainError> {
+        Err(ChainError::Transport(
+            "this transport cannot read blocks or logs".into(),
+        ))
+    }
+}
+
+/// An `eth_getLogs` filter: a contract and, per topic position, an optional list of accepted
+/// values (`0x` + 64 hex digits each). `None` means "any".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogQuery {
+    pub address: Address,
+    pub topics: [Option<Vec<String>>; 4],
+}
+
+/// One log as returned by the node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawLog {
+    pub block_number: u64,
+    pub log_index: Option<u64>,
+    pub tx_hash: Option<String>,
+    pub topics: Vec<String>,
+    /// `0x` hex of the non-indexed data.
+    pub data: String,
 }
 
 /// Read-only view of one Aave V3 Pool.
@@ -251,6 +284,16 @@ impl<T: EthCall> AaveReader<T> {
             Some(f) => self.transport.eth_call_from(f, to, data_hex),
             None => self.transport.eth_call(to, data_hex),
         }
+    }
+
+    /// The latest block number.
+    pub fn block_number(&self) -> Result<u64, ChainError> {
+        self.transport.block_number()
+    }
+
+    /// Logs matching `q` over the inclusive range `from..=to`.
+    pub fn logs(&self, q: &LogQuery, from: u64, to: u64) -> Result<Vec<RawLog>, ChainError> {
+        self.transport.get_logs(q, from, to)
     }
 
     #[cfg(test)]

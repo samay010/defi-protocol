@@ -14,6 +14,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use protocol_adapter_aave::chain::AaveChainRead;
+use protocol_adapter_aave::events::AccountWatcher;
 use protocol_adapter_aave::onchain::{AaveReader, AccountData, Address, EthCall};
 use protocol_adapter_aave::simulate;
 use protocol_adapter_aave::AaveSim;
@@ -190,7 +191,21 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
             account,
             ticks,
             interval_ms,
-        } => cmd_watch(strategy, account, ticks, interval_ms, sandbox, store, out),
+            on,
+            timeout_secs,
+        } => cmd_watch(
+            WatchArgs {
+                strategy,
+                account,
+                ticks,
+                interval_ms,
+                on,
+                timeout_secs,
+            },
+            sandbox,
+            store,
+            out,
+        ),
     }
 }
 
@@ -344,21 +359,50 @@ fn simulate_core(
 
 /// Run `ticks` ticks of a strategy against an already built engine (simulated or live
 /// read-only), waiting `interval` between ticks.
+/// What to do before a tick: run it (with lines to show first) or stop early.
+enum Wait {
+    Tick(Vec<String>),
+    Stop(Vec<String>),
+}
+
 fn drive(
-    mut engine: Engine,
+    engine: Engine,
     res: &Resolved,
     ticks: u64,
     interval: Duration,
     sandbox: SandboxMode,
     emit: &mut dyn FnMut(&str),
 ) -> Result<SimResult, String> {
-    let mut strategy = make_strategy(res, sandbox)?;
-    let mut state = BTreeMap::new();
-    let mut r = SimResult::default();
-    for tick in 1..=ticks {
+    drive_with(engine, res, ticks, sandbox, emit, &mut |tick| {
         if tick > 1 && !interval.is_zero() {
             std::thread::sleep(interval);
         }
+        Ok(Wait::Tick(Vec::new()))
+    })
+}
+
+/// Run up to `ticks` ticks; `before` decides, before each one, whether and when it runs.
+fn drive_with(
+    mut engine: Engine,
+    res: &Resolved,
+    ticks: u64,
+    sandbox: SandboxMode,
+    emit: &mut dyn FnMut(&str),
+    before: &mut dyn FnMut(u64) -> Result<Wait, String>,
+) -> Result<SimResult, String> {
+    let mut strategy = make_strategy(res, sandbox)?;
+    let mut state = BTreeMap::new();
+    let mut r = SimResult::default();
+    let mut done = 0;
+    for tick in 1..=ticks {
+        match before(tick)? {
+            Wait::Tick(lines) => lines.iter().for_each(|l| emit(l)),
+            Wait::Stop(lines) => {
+                lines.iter().for_each(|l| emit(l));
+                break;
+            }
+        }
+        done = tick;
         let rep = step(
             &mut engine,
             strategy.as_mut(),
@@ -386,7 +430,7 @@ fn drive(
     r.total_moved = engine.total_moved;
     r.final_hf = engine
         .adapter
-        .snapshot(ticks)
+        .snapshot(done)
         .ok()
         .and_then(|s| s.health_factor());
     r.account = engine.adapter.account().clone();
@@ -1177,15 +1221,40 @@ fn aave_reader_from_env() -> Result<AaveReader<impl EthCall>, E> {
     Ok(AaveReader::new(transport, pool))
 }
 
-fn cmd_watch(
-    name: String,
+struct WatchArgs {
+    strategy: String,
     account: String,
     ticks: u64,
     interval_ms: u64,
-    sandbox: SandboxMode,
-    store: &Store,
-    out: &mut dyn Write,
-) -> R {
+    on: String,
+    timeout_secs: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Trigger {
+    Interval,
+    Block,
+    Event,
+}
+
+fn parse_trigger(s: &str) -> Option<Trigger> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "interval" => Some(Trigger::Interval),
+        "block" => Some(Trigger::Block),
+        "event" => Some(Trigger::Event),
+        _ => None,
+    }
+}
+
+fn cmd_watch(a: WatchArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) -> R {
+    let WatchArgs {
+        strategy: name,
+        account,
+        ticks,
+        interval_ms,
+        on,
+        timeout_secs,
+    } = a;
     // validate all input before anything touches the environment, the network or a strategy
     let user = Address::parse(&account).map_err(|e| E::Fail(e.to_string()))?;
     if ticks == 0 {
@@ -1193,6 +1262,12 @@ fn cmd_watch(
     }
     if interval_ms < 1_000 {
         return usage("--interval-ms must be at least 1000 (be gentle with RPC providers)");
+    }
+    let Some(trigger) = parse_trigger(&on) else {
+        return usage("--on must be interval, block or event");
+    };
+    if timeout_secs == 0 {
+        return usage("--timeout-secs must be at least 1");
     }
     let r = resolve(store, &name)?;
     let reader = aave_reader_from_env()?;
@@ -1219,14 +1294,68 @@ fn cmd_watch(
         Mode::Manual,
         Network::Testnet,
     );
-    let s = drive(
-        engine,
-        &r,
-        ticks,
-        Duration::from_millis(interval_ms),
-        sandbox,
-        &mut |l| outln!(out, "{l}"),
-    )?;
+    let interval = Duration::from_millis(interval_ms);
+    let s = if trigger == Trigger::Interval {
+        drive(engine, &r, ticks, interval, sandbox, &mut |l| {
+            outln!(out, "{l}")
+        })?
+    } else {
+        outln!(
+            out,
+            "trigger: {} (polling every {} ms; gives up after {} s without one)",
+            if trigger == Trigger::Block {
+                "each new block"
+            } else {
+                "an Aave Pool event touching the account (the first tick runs at once)"
+            },
+            interval_ms,
+            timeout_secs
+        );
+        let mut watcher = AccountWatcher::new(aave_reader_from_env()?, user);
+        let timeout = Duration::from_secs(timeout_secs);
+        let mut deadline = std::time::Instant::now() + timeout;
+        let mut first = true;
+        let mut pending: Vec<String> = Vec::new();
+        drive_with(
+            engine,
+            &r,
+            ticks,
+            sandbox,
+            &mut |l| outln!(out, "{l}"),
+            &mut |_tick| loop {
+                let p = watcher.poll().map_err(|e| e.to_string())?;
+                if p.skipped_blocks > 0 {
+                    pending.push(format!(
+                        "note: {} blocks were not searched for events (gap too large)",
+                        p.skipped_blocks
+                    ));
+                }
+                pending.extend(p.events.iter().map(|e| format!("event: {}", e.describe())));
+                let was_first = first;
+                first = false;
+                let go = if was_first {
+                    pending.push(format!("following from block {}", p.block));
+                    true
+                } else if trigger == Trigger::Block {
+                    p.advanced
+                } else {
+                    !p.events.is_empty()
+                };
+                if go {
+                    if !was_first {
+                        pending.push(format!("block {}", p.block));
+                    }
+                    deadline = std::time::Instant::now() + timeout;
+                    return Ok(Wait::Tick(std::mem::take(&mut pending)));
+                }
+                if std::time::Instant::now() >= deadline {
+                    pending.push(format!("no trigger for {timeout_secs} s: stopping"));
+                    return Ok(Wait::Stop(std::mem::take(&mut pending)));
+                }
+                std::thread::sleep(interval);
+            },
+        )?
+    };
     outln!(
         out,
         "\nsummary: {} suggested, {} alerts, {} denied, {} errors (nothing executed: read-only)",

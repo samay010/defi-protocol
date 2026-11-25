@@ -1276,6 +1276,38 @@ fn aave_preflight_is_documented_in_help() {
 }
 
 #[test]
+fn watch_trigger_flags_are_validated_before_env_or_network() {
+    let c = Cli::new("watch-trigger");
+    let good = "0x1111111111111111111111111111111111111111";
+    let r = c.run(&[
+        "watch",
+        "health-monitor",
+        "--account",
+        good,
+        "--on",
+        "sometimes",
+    ]);
+    assert_eq!(r.code, 2, "{}{}", r.out, r.err);
+    assert!(r.err.contains("interval, block or event"), "{}", r.err);
+    let r = c.run(&[
+        "watch",
+        "health-monitor",
+        "--account",
+        good,
+        "--on",
+        "event",
+        "--timeout-secs",
+        "0",
+    ]);
+    assert_eq!(r.code, 2, "{}{}", r.out, r.err);
+    assert!(r.err.contains("--timeout-secs"), "{}", r.err);
+    let help = c.ok(&["watch", "--help"]);
+    for needle in ["--on", "block", "event", "eth_getLogs", "--timeout-secs"] {
+        assert!(help.contains(needle), "help lacks {needle:?}: {help}");
+    }
+}
+
+#[test]
 fn watch_is_documented_in_help() {
     let c = Cli::new("watch-help");
     let help = c.ok(&["watch", "--help"]);
