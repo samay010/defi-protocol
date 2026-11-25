@@ -107,5 +107,7 @@ when the public repository is created.)
 `protocol aave account` and `protocol watch` read an Aave account from a Sepolia node. They use a
 single `eth_call`; there is no signing, no transaction sending and no key anywhere. The RPC URL
 comes from `PROTOCOL_RPC_URL` only and is removed from error messages; any chain other than
-Sepolia is refused. `watch` runs strategies in manual mode, so fund-moving proposals are never
+Sepolia is refused. `protocol aave preflight` additionally asks the node to execute a Pool action
+(supply, withdraw, borrow, repay) as if the account had sent it; the node runs it and nothing is
+broadcast, so no key and no signature exist. `watch` runs strategies in manual mode, so fund-moving proposals are never
 executed. Strategies themselves still have no network access (sandbox).

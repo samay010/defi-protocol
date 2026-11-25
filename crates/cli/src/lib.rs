@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use protocol_adapter_aave::chain::AaveChainRead;
 use protocol_adapter_aave::onchain::{AaveReader, AccountData, Address, EthCall};
+use protocol_adapter_aave::simulate;
 use protocol_adapter_aave::AaveSim;
 use protocol_core::adapter::{Account, ProtocolAdapter};
 use protocol_core::amount::{format_amount, parse_amount};
@@ -178,6 +179,12 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
         } => cmd_act(instance, kind, asset, amount, protocol, store, out),
         Cmd::KillSwitch { which } => cmd_kill_switch(which, store, out),
         Cmd::Aave(AaveCmd::Account { address }) => cmd_aave_account(address, out),
+        Cmd::Aave(AaveCmd::Preflight {
+            action,
+            asset,
+            amount,
+            account,
+        }) => cmd_aave_preflight(action, asset, amount, account, out),
         Cmd::Watch {
             strategy,
             account,
@@ -1244,6 +1251,68 @@ fn cmd_aave_account(address: String, out: &mut dyn Write) -> R {
         .map_err(|e| E::Fail(e.to_string()))?;
     print_aave_account(out, &user, reader.pool(), &data);
     Ok(0)
+}
+
+fn cmd_aave_preflight(
+    action: String,
+    asset: String,
+    amount: String,
+    account: String,
+    out: &mut dyn Write,
+) -> R {
+    // validate everything that needs no network first: a typo must not need a key or a node
+    let Some(op) = simulate::Operation::parse(&action) else {
+        return usage("action must be one of: supply, withdraw, borrow, repay");
+    };
+    let asset = Address::parse(&asset).map_err(|e| E::Fail(format!("asset: {e}")))?;
+    let account = Address::parse(&account).map_err(|e| E::Fail(format!("account: {e}")))?;
+    simulate::check_amount_syntax(&amount).map_err(E::Fail)?;
+
+    let reader = aave_reader_from_env()?;
+    let decimals =
+        simulate::token_decimals(&reader, &asset).map_err(|e| E::Fail(format!("asset: {e}")))?;
+    let raw = simulate::parse_amount(&amount, decimals).map_err(E::Fail)?;
+
+    outln!(
+        out,
+        "Aave V3 preflight (eth_call at the latest block; nothing is signed or sent)"
+    );
+    outln!(
+        out,
+        "  action    {} {} ({} decimals)",
+        op.as_str(),
+        amount,
+        decimals
+    );
+    outln!(out, "  asset     {}", asset.to_hex());
+    outln!(out, "  account   {}", account.to_hex());
+    outln!(out, "  pool      {}", reader.pool().to_hex());
+    let outcome = simulate::simulate(&reader, op, &asset, raw, &account)
+        .map_err(|e| E::Fail(e.to_string()))?;
+    match outcome {
+        simulate::Outcome::WouldSucceed { .. } => {
+            outln!(
+                out,
+                "\nWOULD SUCCEED: the Pool accepts this call right now."
+            );
+            outln!(
+                out,
+                "This is a simulation, not a guarantee: state can change before a real transaction, \
+and it says nothing about whether the action is a good idea."
+            );
+            Ok(0)
+        }
+        simulate::Outcome::WouldRevert { reason } => {
+            outln!(out, "\nWOULD REVERT: {reason}");
+            outln!(
+                out,
+                "Common causes: not enough tokens or allowance to the Pool (supply, repay), not \
+enough collateral or liquidity (withdraw, borrow), or a paused or capped market. Aave's own \
+error codes are explained in its documentation."
+            );
+            Ok(1)
+        }
+    }
 }
 
 fn print_aave_account(out: &mut dyn Write, user: &Address, pool: &Address, d: &AccountData) {

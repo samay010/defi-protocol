@@ -67,3 +67,16 @@ health factor as collateral x average threshold / debt, so the strategy's health
 the protocol's up to micro-USD rounding. Strategies that need per-token rates or prices see no
 such data in this mode. Nothing is saved (no instance, no store changes). The poll interval is at
 least 1 s.
+
+## Preflight simulation (`protocol aave preflight`)
+The same read-only transport also supports `eth_call` with a `from` address
+(`EthCall::eth_call_from`). `adapter-aave/src/simulate.rs` encodes `supply`, `withdraw`, `borrow`
+and `repay` (signatures and parameter order from the official Aave docs, selectors recomputed
+with an independent Keccak-256, `interestRateMode = 2`, `referralCode = 0`) and asks the node to
+execute them against the latest block. A revert is a normal answer ("would revert" plus the
+decoded reason), a failure to ask is an error. Amounts are parsed exactly from the token's own
+`decimals()` and never rounded. Asset addresses are never built in. This still cannot sign or
+send: the only capability is `eth_call`. It reflects the account's real balances and allowances,
+so a supply from an account without tokens or allowance reverts, which is the true answer. It
+says nothing about gas, later state, or whether an action is wise.
+

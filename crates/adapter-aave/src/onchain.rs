@@ -209,6 +209,20 @@ pub fn decode_account_data(result_hex: &str) -> Result<AccountData, ChainError> 
 /// There is intentionally no method for sending transactions or signing.
 pub trait EthCall {
     fn eth_call(&self, to: &Address, data_hex: &str) -> Result<String, ChainError>;
+
+    /// The same read-only call, executed as if `from` had sent it (used to preflight an action
+    /// against the account's real balances and allowances). Nothing is signed or sent. A
+    /// transport that cannot do this keeps the default, which fails with a clear message.
+    fn eth_call_from(
+        &self,
+        _from: &Address,
+        _to: &Address,
+        _data_hex: &str,
+    ) -> Result<String, ChainError> {
+        Err(ChainError::Transport(
+            "this transport cannot simulate calls from an account".into(),
+        ))
+    }
 }
 
 /// Read-only view of one Aave V3 Pool.
@@ -224,6 +238,24 @@ impl<T: EthCall> AaveReader<T> {
 
     pub fn pool(&self) -> &Address {
         &self.pool
+    }
+
+    /// A read-only `eth_call` to any contract, optionally as if sent by `from`.
+    pub fn call_from(
+        &self,
+        from: Option<&Address>,
+        to: &Address,
+        data_hex: &str,
+    ) -> Result<String, ChainError> {
+        match from {
+            Some(f) => self.transport.eth_call_from(f, to, data_hex),
+            None => self.transport.eth_call(to, data_hex),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn transport_for_tests(&self) -> &T {
+        &self.transport
     }
 
     pub fn account_data(&self, user: &Address) -> Result<AccountData, ChainError> {

@@ -1222,6 +1222,60 @@ fn watch_validates_input_before_env_network_or_strategy() {
 }
 
 #[test]
+fn aave_preflight_validates_input_before_env_or_network() {
+    let c = Cli::new("aave-preflight");
+    let good = "0x1111111111111111111111111111111111111111";
+    let run = |action: &str, asset: &str, amount: &str, account: &str| {
+        c.run(&[
+            "aave",
+            "preflight",
+            action,
+            "--asset",
+            asset,
+            &format!("--amount={amount}"),
+            "--account",
+            account,
+        ])
+    };
+    let r = run("swap", good, "1", good);
+    assert_eq!(r.code, 2, "{}{}", r.out, r.err);
+    assert!(
+        r.err.contains("supply, withdraw, borrow, repay"),
+        "{}",
+        r.err
+    );
+    let r = run("supply", "nonsense", "1", good);
+    assert_eq!(r.code, 1);
+    assert!(r.err.contains("asset"), "{}", r.err);
+    let r = run("supply", good, "1", "0x12");
+    assert_eq!(r.code, 1);
+    assert!(r.err.contains("account"), "{}", r.err);
+    for bad in ["1.2.3", "-1", "1e3", ""] {
+        let r = run("supply", good, bad, good);
+        assert_eq!(r.code, 1, "amount {bad:?}: {}{}", r.out, r.err);
+        assert!(r.err.contains("bad amount"), "{}", r.err);
+    }
+    // required flags are enforced by the argument parser
+    let r = c.run(&["aave", "preflight", "supply"]);
+    assert_eq!(r.code, 2);
+}
+
+#[test]
+fn aave_preflight_is_documented_in_help() {
+    let c = Cli::new("aave-preflight-help");
+    let r = c.run(&["aave", "preflight", "--help"]);
+    assert_eq!(r.code, 0);
+    for needle in [
+        "Nothing is signed or sent",
+        "WOULD REVERT",
+        "PROTOCOL_RPC_URL",
+        "official address book",
+    ] {
+        assert!(r.out.contains(needle), "help lacks {needle:?}: {}", r.out);
+    }
+}
+
+#[test]
 fn watch_is_documented_in_help() {
     let c = Cli::new("watch-help");
     let help = c.ok(&["watch", "--help"]);

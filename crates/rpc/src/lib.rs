@@ -1,7 +1,8 @@
 //! Read-only HTTPS JSON-RPC transport for the Aave adapter.
 //!
 //! What this crate can do: open an HTTP provider, check the chain id against the testnet
-//! allowlist, and run `eth_call` at the latest block. What it cannot do: sign, send
+//! allowlist, and run `eth_call` at the latest block (optionally as if sent by an account, to
+//! preflight an action; the call is executed by the node and never broadcast). What it cannot do: sign, send
 //! transactions or hold keys. It exposes nothing but [`EthCall`], and alloy is built here with
 //! default features off (no signer). No error from this crate contains the RPC URL (it usually
 //! carries an API key).
@@ -42,12 +43,8 @@ impl<P> Http<P> {
     }
 }
 
-impl<P: Provider> EthCall for Http<P> {
-    fn eth_call(&self, to: &Address, data_hex: &str) -> Result<String, ChainError> {
-        let data = hex_to_bytes(data_hex)?;
-        let tx = TransactionRequest::default()
-            .with_to(RawAddress::from(to.0))
-            .with_input(Bytes::from(data));
+impl<P: Provider> Http<P> {
+    fn call_tx(&self, tx: TransactionRequest) -> Result<String, ChainError> {
         // the timeout must be created inside the runtime (its timer needs the runtime context)
         let fut = async { tokio::time::timeout(TIMEOUT, self.provider.call(tx)).await };
         let out: Bytes = self
@@ -56,6 +53,30 @@ impl<P: Provider> EthCall for Http<P> {
             .map_err(|_| ChainError::Transport("rpc request timed out".into()))?
             .map_err(|e| self.scrub(e))?;
         Ok(bytes_to_hex(&out))
+    }
+}
+
+impl<P: Provider> EthCall for Http<P> {
+    fn eth_call(&self, to: &Address, data_hex: &str) -> Result<String, ChainError> {
+        let data = hex_to_bytes(data_hex)?;
+        let tx = TransactionRequest::default()
+            .with_to(RawAddress::from(to.0))
+            .with_input(Bytes::from(data));
+        self.call_tx(tx)
+    }
+
+    fn eth_call_from(
+        &self,
+        from: &Address,
+        to: &Address,
+        data_hex: &str,
+    ) -> Result<String, ChainError> {
+        let data = hex_to_bytes(data_hex)?;
+        let tx = TransactionRequest::default()
+            .with_from(RawAddress::from(from.0))
+            .with_to(RawAddress::from(to.0))
+            .with_input(Bytes::from(data));
+        self.call_tx(tx)
     }
 }
 

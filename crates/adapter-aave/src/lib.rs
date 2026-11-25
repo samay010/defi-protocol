@@ -8,6 +8,7 @@
 
 pub mod chain;
 pub mod onchain;
+pub mod simulate;
 
 use std::collections::BTreeMap;
 

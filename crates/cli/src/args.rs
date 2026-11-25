@@ -167,6 +167,31 @@ Other chains (including mainnet) are refused."
         /// 0x address to inspect
         address: String,
     },
+    /// Simulate a supply, withdraw, borrow or repay with eth_call (nothing is signed or sent)
+    #[command(
+        after_help = "Builds the exact calldata a real Pool action would carry and asks the node to execute it
+without broadcasting, as if the account had sent it, against the latest block. The answer is
+WOULD SUCCEED or WOULD REVERT with the reason. Nothing is signed or sent; no key is involved.
+It does not say the action is a good idea, nor that state will not change before a real
+transaction. A supply for an account that lacks the tokens or the allowance to the Pool reverts:
+that is the real answer.
+Environment (never flags or files): PROTOCOL_RPC_URL, PROTOCOL_AAVE_POOL (see `protocol aave account --help`).
+The asset is the token's 0x address from Aave's official address book for the same testnet.
+Example: protocol aave preflight supply --asset 0x... --amount 10 --account 0x..."
+    )]
+    Preflight {
+        /// supply, withdraw, borrow or repay
+        action: String,
+        /// 0x address of the token (from Aave's official address book)
+        #[arg(long)]
+        asset: String,
+        /// Amount in whole tokens, for example 10 or 0.5
+        #[arg(long)]
+        amount: String,
+        /// 0x address that would send the transaction and receive the result
+        #[arg(long)]
+        account: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
