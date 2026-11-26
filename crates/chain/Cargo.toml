@@ -1,0 +1,9 @@
+[package]
+name = "protocol-chain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Shared read-only chain primitives (addresses, hex, testnet allowlist, EthCall trait). No I/O, no keys."
+
+[dependencies]

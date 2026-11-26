@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 protocol-core = { path = "../core" }
 protocol-adapter-aave = { path = "../adapter-aave" }
+protocol-adapter-compound = { path = "../adapter-compound" }
 protocol-strategies = { path = "../strategies" }
 clap = { version = "4.6.9", features = ["derive"] }
 protocol-rpc = { path = "../rpc" }

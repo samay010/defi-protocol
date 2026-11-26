@@ -18,6 +18,7 @@ use protocol_adapter_aave::events::AccountWatcher;
 use protocol_adapter_aave::onchain::{AaveReader, AccountData, Address, EthCall};
 use protocol_adapter_aave::simulate;
 use protocol_adapter_aave::AaveSim;
+use protocol_adapter_compound::{CompoundReader, MarketConfig, Position};
 use protocol_core::adapter::{Account, ProtocolAdapter};
 use protocol_core::amount::{format_amount, parse_amount};
 use protocol_core::engine::{Engine, Outcome};
@@ -28,7 +29,7 @@ use protocol_core::store::{Instance, Store};
 use protocol_core::supervisor::{self, RunConfig};
 use protocol_core::types::{Action, ActionKind, Mode, Network, Scenario, Status};
 
-use args::{AaveCmd, Cli, Cmd, StrategiesCmd};
+use args::{AaveCmd, Cli, Cmd, CompoundCmd, StrategiesCmd};
 use clap::{CommandFactory, Parser};
 use resolve::{make_strategy, resolve, Resolved, Source, Tier};
 
@@ -180,6 +181,7 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
         } => cmd_act(instance, kind, asset, amount, protocol, store, out),
         Cmd::KillSwitch { which } => cmd_kill_switch(which, store, out),
         Cmd::Aave(AaveCmd::Account { address }) => cmd_aave_account(address, out),
+        Cmd::Compound(CompoundCmd::Account { address }) => cmd_compound_account(address, out),
         Cmd::Aave(AaveCmd::Preflight {
             action,
             asset,
@@ -1380,6 +1382,71 @@ fn cmd_aave_account(address: String, out: &mut dyn Write) -> R {
         .map_err(|e| E::Fail(e.to_string()))?;
     print_aave_account(out, &user, reader.pool(), &data);
     Ok(0)
+}
+
+/// Environment variable naming the Comet (market) contract.
+const ENV_COMET: &str = "PROTOCOL_COMPOUND_COMET";
+
+fn cmd_compound_account(address: String, out: &mut dyn Write) -> R {
+    // validate the input first: a typo must not need the network or any secret
+    let user = Address::parse(&address).map_err(|e| E::Fail(e.to_string()))?;
+    let url = env_required(protocol_rpc::ENV_RPC_URL)?;
+    let comet_text = env_required(ENV_COMET)?;
+    let comet = Address::parse(&comet_text).map_err(|e| E::Fail(format!("{ENV_COMET}: {e}")))?;
+    let transport = protocol_rpc::connect(&url).map_err(|e| E::Fail(e.to_string()))?;
+    let reader = CompoundReader::new(transport, comet);
+    let fail = |e: protocol_adapter_compound::ChainError| E::Fail(e.to_string());
+    let cfg = reader.market().map_err(fail)?;
+    let pos = reader.position(&cfg, &user).map_err(fail)?;
+    let chain = reader.is_liquidatable_on_chain(&user).map_err(fail)?;
+    print_compound_account(out, &user, reader.comet(), &cfg, &pos, chain);
+    Ok(0)
+}
+
+fn print_compound_account(
+    out: &mut dyn Write,
+    user: &Address,
+    comet: &Address,
+    cfg: &MarketConfig,
+    p: &Position,
+    on_chain_liquidatable: bool,
+) {
+    let usd = |v: u128| v as f64 / 1e8;
+    outln!(out, "Compound III account (read-only, testnet)");
+    outln!(out, "  address            {}", user.to_hex());
+    outln!(out, "  market (comet)     {}", comet.to_hex());
+    outln!(out, "  collateral assets  {}", cfg.assets.len());
+    outln!(
+        out,
+        "  collateral         {:.2} USD",
+        usd(p.collateral_usd8)
+    );
+    outln!(out, "  debt               {:.2} USD", usd(p.debt_usd8));
+    outln!(
+        out,
+        "  borrow capacity    {:.2} USD",
+        usd(p.borrow_capacity_usd8)
+    );
+    outln!(
+        out,
+        "  liquidation limit  {:.2} USD",
+        usd(p.liquidation_capacity_usd8)
+    );
+    match p.health_factor() {
+        Some(hf) => outln!(out, "  health factor      {hf:.3}"),
+        None => outln!(out, "  health factor      n/a (no debt)"),
+    }
+    outln!(
+        out,
+        "  liquidatable       {}",
+        if on_chain_liquidatable { "yes" } else { "no" }
+    );
+    if p.liquidatable() != on_chain_liquidatable {
+        outln!(
+            out,
+            "  note: the contract and this reader disagree (interest accrual between the stored index and now); trust the contract."
+        );
+    }
 }
 
 fn cmd_aave_preflight(

@@ -1,0 +1,11 @@
+[package]
+name = "protocol-adapter-compound"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Read-only Compound III (Comet) adapter: balances, health factor, liquidation check. No I/O of its own, no keys."
+
+[dependencies]
+protocol-core = { path = "../core" }
+protocol-chain = { path = "../chain" }

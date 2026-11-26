@@ -27,6 +27,8 @@ Queued actions are risk-checked **again** at approval time because state may hav
 | Crate | Responsibility |
 |---|---|
 | `protocol-core` | Everything language- and protocol-neutral (below) |
+| `protocol-chain` | Shared read-only chain types: `Address`, `EthCall` trait, hex and range guards (no keys, no signing) |
+| `protocol-adapter-compound` | Read-only Compound III (Comet) reader: balances, health factor, liquidation rule (no I/O of its own) |
 | `protocol-adapter-aave` | Simulated Aave adapter (deterministic synthetic markets, calm/stress scenarios) |
 | `protocol-strategies` | Official built-in strategies with manifests and docs |
 | `protocol-cli` | The `protocol` binary, per-language templates, argument handling |

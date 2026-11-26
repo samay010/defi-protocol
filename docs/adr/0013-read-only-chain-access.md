@@ -93,3 +93,19 @@ can show an event that later disappears or miss one; amounts are raw token units
 no decimals). The strategy itself is unchanged: it still sees the aggregate USD view on each tick,
 and events only decide *when* a tick happens (they are printed, not fed to the strategy).
 
+
+## Compound III (`protocol compound account`)
+`crates/adapter-compound` reads one Comet market through the shared `protocol-chain` crate
+(`Address`, `EthCall`, hex and range guards, extracted from the Aave adapter so every protocol
+uses the same read-only transport). Functions, struct layout and the liquidation rule were taken
+from the Comet source (`compound-finance/comet`, commit `f766f51`), not from memory; selectors
+were recomputed with an independent Keccak-256. Account is liquidatable iff it has debt and
+`sum(floor(floor(balance * price / assetScale) * liquidateCollateralFactor / 1e18)) < debt value`;
+a test compares this with a line-by-line port of the contract's loop on 5000 pseudo-random
+positions. Differences and limits: the contract checks with the last stored interest index while
+`borrowBalanceOf` accrues to now, so our debt can be slightly higher; the command also asks the
+contract's `isLiquidatable` and prints a note if they disagree. Compound's official repository
+lists no Sepolia deployment, so this reader has been verified against the source and a scripted
+fake node only, not a live market; run it against a market from Compound's own deployment list
+before relying on it. Contract addresses are never built in. `watch` still reads Aave only;
+choosing a protocol in `watch` comes next, behind the generic `ReadOnlyAdapter`.

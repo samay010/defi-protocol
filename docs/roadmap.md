@@ -9,6 +9,9 @@ Rust workspace, architecture docs and ADRs, strategy interfaces (trait + line pr
 - Done: adapter interface, simulated Aave adapter, read-only (alert-only) strategies.
 - Done: read-only ABI layer for `Pool.getUserAccountData` (ADR 0013), read-only alloy transport,
   `protocol aave account` and `protocol watch` (live Sepolia data, aggregate USD view, suggestions only).
+- Done: adapter abstraction (`protocol-chain`, `ReadOnlyAdapter`) and a read-only Compound III reader
+  (`protocol compound account`); verified against Comet source and a scripted node, not a live market
+  (no official Sepolia deployment found). Next: Morpho, then `watch --protocol`.
 - Done: `protocol aave preflight` (real transaction simulation via `eth_call` from the account,
   Sepolia, no keys; revert reasons shown). Next: simulate strategy proposals through it, and
   `eth_call` state overrides or a fork for 'what if I had the funds'.

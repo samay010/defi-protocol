@@ -3082,8 +3082,21 @@ dependencies = [
 name = "protocol-adapter-aave"
 version = "0.1.0"
 dependencies = [
+ "protocol-chain",
  "protocol-core",
 ]
+
+[[package]]
+name = "protocol-adapter-compound"
+version = "0.1.0"
+dependencies = [
+ "protocol-chain",
+ "protocol-core",
+]
+
+[[package]]
+name = "protocol-chain"
+version = "0.1.0"
 
 [[package]]
 name = "protocol-cli"
@@ -3091,6 +3104,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "protocol-adapter-aave",
+ "protocol-adapter-compound",
  "protocol-core",
  "protocol-rpc",
  "protocol-strategies",

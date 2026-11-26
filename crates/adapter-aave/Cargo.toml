@@ -8,3 +8,4 @@ description = "Simulated Aave adapter (deterministic data, no network, no keys)"
 
 [dependencies]
 protocol-core = { path = "../core" }
+protocol-chain = { path = "../chain" }

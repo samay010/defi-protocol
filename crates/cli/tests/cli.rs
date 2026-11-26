@@ -1315,3 +1315,23 @@ fn watch_is_documented_in_help() {
     assert!(help.contains("PROTOCOL_RPC_URL"), "{help}");
     assert!(help.contains("never executed"), "{help}");
 }
+
+#[test]
+fn compound_account_validates_input_before_env_or_network() {
+    let c = Cli::new("compound-account");
+    let r = c.run(&["compound", "account", "nonsense"]);
+    assert_eq!(r.code, 1, "{}{}", r.out, r.err);
+    assert!(r.err.contains("bad address"), "{}", r.err);
+    // the address argument is required
+    assert_eq!(c.run(&["compound", "account"]).code, 2);
+    let r = c.run(&["compound", "account", "--help"]);
+    assert_eq!(r.code, 0);
+    for needle in [
+        "Nothing is signed or sent",
+        "PROTOCOL_COMPOUND_COMET",
+        "PROTOCOL_RPC_URL",
+        "mainnet",
+    ] {
+        assert!(r.out.contains(needle), "help lacks {needle:?}: {}", r.out);
+    }
+}

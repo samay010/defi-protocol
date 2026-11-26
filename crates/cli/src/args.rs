@@ -155,8 +155,27 @@ pub enum Cmd {
     /// Read-only Aave testnet data (needs PROTOCOL_RPC_URL and PROTOCOL_AAVE_POOL)
     #[command(subcommand)]
     Aave(AaveCmd),
+    /// Read-only Compound III testnet data (needs PROTOCOL_RPC_URL and PROTOCOL_COMPOUND_COMET)
+    #[command(subcommand)]
+    Compound(CompoundCmd),
     /// Print the version
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CompoundCmd {
+    /// Show an account's balances, collateral, debt and health factor in one Comet market (read-only; Sepolia testnet only)
+    #[command(
+        after_help = "Reads the market's configuration and the account's balances and prices with eth_call, then applies Compound III's own liquidation rule. It also asks the contract's `isLiquidatable` and warns if the two disagree. Nothing is signed or sent.\n\
+Environment (never flags or files, the RPC URL usually contains an API key):\n\
+  PROTOCOL_RPC_URL        https JSON-RPC URL of a Sepolia node\n\
+  PROTOCOL_COMPOUND_COMET Comet (market) address from Compound's own deployment list\n\
+Other chains (including mainnet) are refused. The health factor is slightly conservative: borrowBalanceOf includes interest up to now, while the contract's check uses the last stored index."
+    )]
+    Account {
+        /// 0x address to inspect
+        address: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

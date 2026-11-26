@@ -24,7 +24,7 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 | Critical | `external.rs`, `sandbox.rs`, `seccomp.rs`, `manifest.rs` | parse untrusted input; spawn processes; isolation (files, network, syscalls); limits |
 | High | `store.rs`, `supervisor.rs` | locking, kill switch, command inbox, restart logic |
 | High | `hash.rs` + `sha2` | what "verified" is bound to |
-| Medium | `adapter.rs`, adapter-aave | balance math, health factor |
+| Medium | `adapter.rs`, adapter-aave, adapter-compound, chain | balance math, health factor |
 | Low | `amount.rs`, `kv.rs`, `types.rs`, CLI | parsing helpers and presentation |
 
 ## Existing evidence
