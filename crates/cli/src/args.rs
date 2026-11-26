@@ -69,7 +69,7 @@ pub enum Cmd {
     },
     /// Run a strategy on LIVE read-only Aave testnet data (nothing executed, nothing saved)
     #[command(
-        after_help = "Reads the account's Aave V3 totals from a Sepolia node every tick and feeds them to the strategy as an aggregate USD view (one pseudo-asset `USD`; no per-token rates). Runs in manual mode: fund-moving proposals are only suggested, never executed. Needs PROTOCOL_RPC_URL and PROTOCOL_AAVE_POOL (see `protocol aave account --help`).\n\nWhat starts a tick (--on): `interval` (default: every --interval-ms), `block` (each new block, polled every --interval-ms) or `event` (only when the account has a Pool event: supply, withdraw, borrow, repay or liquidation; the first tick runs at once). Events are read with eth_getLogs over plain HTTP; a chain reorganisation can show an event that later disappears, and a gap of more than 500 blocks between polls is not backfilled. With block or event, waiting stops after --timeout-secs without a trigger."
+        after_help = "Reads the account's Aave V3 totals from a Sepolia node every tick and feeds them to the strategy as an aggregate USD view (one pseudo-asset `USD`; no per-token rates). Choose the protocol with --protocol (aave, compound or morpho; default aave). Compound and Morpho read their own market (see `protocol compound account --help` and `protocol morpho account --help` for the environment variables) and support --on interval and --on block only; Morpho amounts are loan-token units, not dollars.\n\nRuns in manual mode: fund-moving proposals are only suggested, never executed. Needs PROTOCOL_RPC_URL and PROTOCOL_AAVE_POOL (see `protocol aave account --help`).\n\nWhat starts a tick (--on): `interval` (default: every --interval-ms), `block` (each new block, polled every --interval-ms) or `event` (only when the account has a Pool event: supply, withdraw, borrow, repay or liquidation; the first tick runs at once). Events are read with eth_getLogs over plain HTTP; a chain reorganisation can show an event that later disappears, and a gap of more than 500 blocks between polls is not backfilled. With block or event, waiting stops after --timeout-secs without a trigger."
     )]
     Watch {
         strategy: String,
@@ -87,6 +87,9 @@ pub enum Cmd {
         /// With --on block or event: stop after this many seconds without a trigger
         #[arg(long, default_value_t = 900)]
         timeout_secs: u64,
+        /// Protocol to read: aave (default), compound or morpho
+        #[arg(long, default_value = "aave")]
+        protocol: String,
     },
     /// Show a strategy's content hash; --pin records it as reviewed
     Verify {

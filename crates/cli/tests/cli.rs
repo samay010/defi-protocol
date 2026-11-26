@@ -1355,3 +1355,35 @@ fn morpho_account_validates_input_before_env_or_network() {
         assert!(r.out.contains(needle), "help lacks {needle:?}: {}", r.out);
     }
 }
+
+#[test]
+fn watch_protocol_is_validated_before_env_network_or_strategy() {
+    let c = Cli::new("watch-protocol");
+    let good = "0x1111111111111111111111111111111111111111";
+    let r = c.run(&[
+        "watch",
+        "health-monitor",
+        "--account",
+        good,
+        "--protocol",
+        "nope",
+    ]);
+    assert_eq!(r.code, 2, "{}{}", r.out, r.err);
+    assert!(r.err.contains("aave, compound or morpho"), "{}", r.err);
+    for p in ["compound", "morpho"] {
+        let r = c.run(&[
+            "watch",
+            "health-monitor",
+            "--account",
+            good,
+            "--protocol",
+            p,
+            "--on",
+            "event",
+        ]);
+        assert_eq!(r.code, 2, "{p}: {}{}", r.out, r.err);
+        assert!(r.err.contains("only available for aave"), "{}", r.err);
+    }
+    let r = c.run(&["watch", "--help"]);
+    assert!(r.out.contains("--protocol"), "{}", r.out);
+}

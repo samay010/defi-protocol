@@ -18,12 +18,13 @@ use protocol_adapter_aave::events::AccountWatcher;
 use protocol_adapter_aave::onchain::{AaveReader, AccountData, Address, EthCall};
 use protocol_adapter_aave::simulate;
 use protocol_adapter_aave::AaveSim;
-use protocol_adapter_compound::{CompoundReader, MarketConfig, Position};
-use protocol_adapter_morpho::{MarketId, MorphoReader};
+use protocol_adapter_compound::{CompoundReader, CompoundSource, MarketConfig, Position};
+use protocol_adapter_morpho::{MarketId, MorphoReader, MorphoSource};
 use protocol_core::adapter::{Account, ProtocolAdapter};
 use protocol_core::amount::{format_amount, parse_amount};
 use protocol_core::engine::{Engine, Outcome};
 use protocol_core::manifest::{valid_name, Language};
+use protocol_core::readonly::ReadOnlyAdapter;
 use protocol_core::runtime::step;
 use protocol_core::sandbox::{self, SandboxMode};
 use protocol_core::store::{Instance, Store};
@@ -197,8 +198,10 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
             interval_ms,
             on,
             timeout_secs,
+            protocol,
         } => cmd_watch(
             WatchArgs {
+                protocol,
                 strategy,
                 account,
                 ticks,
@@ -1226,6 +1229,7 @@ fn aave_reader_from_env() -> Result<AaveReader<impl EthCall>, E> {
 }
 
 struct WatchArgs {
+    protocol: String,
     strategy: String,
     account: String,
     ticks: u64,
@@ -1250,8 +1254,105 @@ fn parse_trigger(s: &str) -> Option<Trigger> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Proto {
+    Aave,
+    Compound,
+    Morpho,
+}
+
+fn parse_proto(s: &str) -> Option<Proto> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "aave" => Some(Proto::Aave),
+        "compound" => Some(Proto::Compound),
+        "morpho" => Some(Proto::Morpho),
+        _ => None,
+    }
+}
+
+/// What a watched protocol's data means, for the banner.
+fn proto_banner(p: Proto) -> (&'static str, &'static str) {
+    match p {
+        Proto::Aave => (
+            "Aave V3 Sepolia",
+            "view: aggregate USD totals (pseudo-asset USD, no per-token rates); health factor follows Aave's definition.",
+        ),
+        Proto::Compound => (
+            "Compound III Sepolia",
+            "view: aggregate USD totals (pseudo-asset USD, no per-token rates); health factor = collateral x liquidation factors / debt (Compound's rule; slightly conservative).",
+        ),
+        Proto::Morpho => (
+            "Morpho Blue Sepolia",
+            "view: totals in LOAN-TOKEN units scaled to 6 decimals, labelled USD only because the strategy interface has one unit. They are NOT dollars unless the loan token is a dollar stablecoin. Health = max borrow / debt (Morpho's rule; slightly optimistic: interest is not accrued).",
+        ),
+    }
+}
+
+fn watch_adapter(p: Proto, user: Address) -> Result<Box<dyn ProtocolAdapter>, E> {
+    match p {
+        Proto::Aave => Ok(Box::new(AaveChainRead::new(aave_reader_from_env()?, user)?)),
+        Proto::Compound => {
+            let url = env_required(protocol_rpc::ENV_RPC_URL)?;
+            let comet = Address::parse(&env_required(ENV_COMET)?)
+                .map_err(|e| E::Fail(format!("{ENV_COMET}: {e}")))?;
+            let t = protocol_rpc::connect(&url).map_err(|e| E::Fail(e.to_string()))?;
+            let src = CompoundSource::new(CompoundReader::new(t, comet), user).map_err(E::Fail)?;
+            Ok(Box::new(ReadOnlyAdapter::new(src).map_err(E::Fail)?))
+        }
+        Proto::Morpho => {
+            let url = env_required(protocol_rpc::ENV_RPC_URL)?;
+            let morpho = Address::parse(&env_required(ENV_MORPHO)?)
+                .map_err(|e| E::Fail(format!("{ENV_MORPHO}: {e}")))?;
+            let id = MarketId::parse(&env_required(ENV_MORPHO_MARKET)?)
+                .map_err(|e| E::Fail(format!("{ENV_MORPHO_MARKET}: {e}")))?;
+            let t = protocol_rpc::connect(&url).map_err(|e| E::Fail(e.to_string()))?;
+            let src = MorphoSource::new(MorphoReader::new(t, morpho), id, user).map_err(E::Fail)?;
+            Ok(Box::new(ReadOnlyAdapter::new(src).map_err(E::Fail)?))
+        }
+    }
+}
+
+/// One look at the chain for the block/event triggers.
+struct Look {
+    block: u64,
+    advanced: bool,
+    events: Vec<String>,
+    skipped: u64,
+}
+
+fn watch_poller(p: Proto, user: Address) -> Result<Box<dyn FnMut() -> Result<Look, String>>, E> {
+    if p == Proto::Aave {
+        let mut w = AccountWatcher::new(aave_reader_from_env()?, user);
+        return Ok(Box::new(move || {
+            let p = w.poll().map_err(|e| e.to_string())?;
+            Ok(Look {
+                block: p.block,
+                advanced: p.advanced,
+                events: p.events.iter().map(|e| e.describe()).collect(),
+                skipped: p.skipped_blocks,
+            })
+        }));
+    }
+    // Compound and Morpho: new blocks only (their events are not followed yet)
+    let t = protocol_rpc::connect(&env_required(protocol_rpc::ENV_RPC_URL)?)
+        .map_err(|e| E::Fail(e.to_string()))?;
+    let mut last: Option<u64> = None;
+    Ok(Box::new(move || {
+        let b = t.block_number().map_err(|e| e.to_string())?;
+        let advanced = last.is_none_or(|l| b > l);
+        last = Some(last.map_or(b, |l| l.max(b)));
+        Ok(Look {
+            block: b,
+            advanced,
+            events: Vec::new(),
+            skipped: 0,
+        })
+    }))
+}
+
 fn cmd_watch(a: WatchArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) -> R {
     let WatchArgs {
+        protocol,
         strategy: name,
         account,
         ticks,
@@ -1273,12 +1374,20 @@ fn cmd_watch(a: WatchArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Wr
     if timeout_secs == 0 {
         return usage("--timeout-secs must be at least 1");
     }
+    let Some(proto) = parse_proto(&protocol) else {
+        return usage("--protocol must be aave, compound or morpho");
+    };
+    if proto != Proto::Aave && trigger == Trigger::Event {
+        return usage(
+            "--on event is only available for aave; use --on block or interval for this protocol",
+        );
+    }
     let r = resolve(store, &name)?;
-    let reader = aave_reader_from_env()?;
-    let chain = AaveChainRead::new(reader, user)?;
+    let chain = watch_adapter(proto, user)?;
+    let (label, view_line) = proto_banner(proto);
     outln!(
         out,
-        "watching {} on Aave V3 Sepolia (live, read-only): account {}",
+        "watching {} on {label} (live, read-only): account {}",
         r.manifest.name,
         user.to_hex()
     );
@@ -1286,18 +1395,10 @@ fn cmd_watch(a: WatchArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Wr
         out,
         "manual mode: fund-moving proposals are only suggested, never executed. Nothing is saved."
     );
-    outln!(
-        out,
-        "view: aggregate USD totals (pseudo-asset USD, no per-token rates); health factor follows Aave's definition."
-    );
+    outln!(out, "{view_line}");
     print_trust_banner(&r, out);
     print_sandbox_line(&r, sandbox, out);
-    let engine = Engine::new(
-        Box::new(chain),
-        r.manifest.policy(),
-        Mode::Manual,
-        Network::Testnet,
-    );
+    let engine = Engine::new(chain, r.manifest.policy(), Mode::Manual, Network::Testnet);
     let interval = Duration::from_millis(interval_ms);
     let s = if trigger == Trigger::Interval {
         drive(engine, &r, ticks, interval, sandbox, &mut |l| {
@@ -1315,7 +1416,7 @@ fn cmd_watch(a: WatchArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Wr
             interval_ms,
             timeout_secs
         );
-        let mut watcher = AccountWatcher::new(aave_reader_from_env()?, user);
+        let mut poll = watch_poller(proto, user)?;
         let timeout = Duration::from_secs(timeout_secs);
         let mut deadline = std::time::Instant::now() + timeout;
         let mut first = true;
@@ -1327,14 +1428,14 @@ fn cmd_watch(a: WatchArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Wr
             sandbox,
             &mut |l| outln!(out, "{l}"),
             &mut |_tick| loop {
-                let p = watcher.poll().map_err(|e| e.to_string())?;
-                if p.skipped_blocks > 0 {
+                let p = poll()?;
+                if p.skipped > 0 {
                     pending.push(format!(
                         "note: {} blocks were not searched for events (gap too large)",
-                        p.skipped_blocks
+                        p.skipped
                     ));
                 }
-                pending.extend(p.events.iter().map(|e| format!("event: {}", e.describe())));
+                pending.extend(p.events.iter().map(|e| format!("event: {e}")));
                 let was_first = first;
                 first = false;
                 let go = if was_first {
