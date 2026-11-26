@@ -25,6 +25,7 @@ use protocol_core::amount::{format_amount, parse_amount};
 use protocol_core::engine::{Engine, Outcome};
 use protocol_core::manifest::{valid_name, Language};
 use protocol_core::readonly::ReadOnlyAdapter;
+use protocol_core::replay::{self, ReplayAdapter};
 use protocol_core::runtime::step;
 use protocol_core::sandbox::{self, SandboxMode};
 use protocol_core::store::{Instance, Store};
@@ -183,6 +184,11 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
         } => cmd_act(instance, kind, asset, amount, protocol, store, out),
         Cmd::KillSwitch { which } => cmd_kill_switch(which, store, out),
         Cmd::Aave(AaveCmd::Account { address }) => cmd_aave_account(address, out),
+        Cmd::Backtest {
+            strategy,
+            data,
+            protocol,
+        } => cmd_backtest(&strategy, &data, &protocol, sandbox, store, out),
         Cmd::Compound(CompoundCmd::Account { address }) => cmd_compound_account(address, out),
         Cmd::Morpho(MorphoCmd::Account { address }) => cmd_morpho_account(address, out),
         Cmd::Aave(AaveCmd::Preflight {
@@ -349,6 +355,7 @@ struct SimResult {
     total_moved: u64,
     final_hf: Option<f64>,
     account: Account,
+    first_proposal_tick: Option<u64>,
 }
 
 fn simulate_core(
@@ -419,6 +426,9 @@ fn drive_with(
         );
         for l in rep.lines() {
             emit(&l);
+        }
+        if r.first_proposal_tick.is_none() && !rep.results.is_empty() {
+            r.first_proposal_tick = Some(tick);
         }
         if let Some(e) = &rep.error {
             r.errors.push(format!("tick {tick}: {e}"));
@@ -1472,6 +1482,126 @@ fn cmd_watch(a: WatchArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Wr
     match s.final_hf {
         Some(hf) => outln!(out, "final health factor: {hf:.3}"),
         None => outln!(out, "final health factor: n/a (no debt)"),
+    }
+    Ok(if s.errors.is_empty() { 0 } else { 1 })
+}
+
+fn cmd_backtest(
+    name: &str,
+    data: &str,
+    protocol: &str,
+    sandbox: SandboxMode,
+    store: &Store,
+    out: &mut dyn Write,
+) -> R {
+    // validate all input before touching a strategy
+    let Some(proto) = parse_proto(protocol) else {
+        return usage("--protocol must be aave, compound or morpho");
+    };
+    let proto_id = match proto {
+        Proto::Aave => "aave",
+        Proto::Compound => "compound",
+        Proto::Morpho => "morpho",
+    };
+    let path = Path::new(data);
+    let meta = std::fs::metadata(path).map_err(|e| E::Fail(format!("cannot read {data}: {e}")))?;
+    if !meta.is_file() {
+        return Err(E::Fail(format!("{data} is not a file")));
+    }
+    if meta.len() > replay::MAX_BYTES as u64 {
+        return Err(E::Fail(format!(
+            "{data} is larger than {} bytes",
+            replay::MAX_BYTES
+        )));
+    }
+    let text =
+        std::fs::read_to_string(path).map_err(|e| E::Fail(format!("cannot read {data}: {e}")))?;
+    let rows = replay::parse_csv(&text).map_err(|e| E::Fail(format!("{data}: {e}")))?;
+    let st = replay::stats(&rows);
+    let labels: Vec<String> = rows.iter().map(|r| r.label.clone()).collect();
+    let label_at = |t: u64| {
+        usize::try_from(t)
+            .ok()
+            .and_then(|t| t.checked_sub(1))
+            .and_then(|i| labels.get(i))
+            .map_or("?", String::as_str)
+            .to_string()
+    };
+    let r = resolve(store, name)?;
+    let adapter = ReplayAdapter::new(proto_id, rows).map_err(E::Fail)?;
+    outln!(
+        out,
+        "backtest {} on {} recorded ticks ({}), protocol id {proto_id}",
+        r.manifest.name,
+        st.rows,
+        data
+    );
+    outln!(
+        out,
+        "replay only: nothing is executed and no position is simulated. This shows what the strategy would have proposed and what the risk engine would have said, not what would have happened afterwards."
+    );
+    print_trust_banner(&r, out);
+    print_sandbox_line(&r, sandbox, out);
+    match st.min_hf {
+        Some((hf, t)) => outln!(
+            out,
+            "data: lowest health factor {hf:.3} at tick {t} ({}); {} tick(s) below 1.0",
+            label_at(t),
+            st.unsafe_ticks
+        ),
+        None => outln!(out, "data: the account never had debt (no health factor)"),
+    }
+    if let Some(t) = st.first_unsafe_tick {
+        outln!(out, "data: first tick below 1.0 is {t} ({})", label_at(t));
+    }
+    let engine = Engine::new(
+        Box::new(adapter),
+        r.manifest.policy(),
+        Mode::Manual,
+        Network::Simulation,
+    );
+    let total = st.rows as u64;
+    let s = drive_with(
+        engine,
+        &r,
+        total,
+        sandbox,
+        &mut |l| outln!(out, "{l}"),
+        &mut |tick| Ok(Wait::Tick(vec![format!("-- {}", label_at(tick))])),
+    )?;
+    outln!(
+        out,
+        "\nsummary: {} suggested, {} alerts, {} denied, {} errors (nothing executed: replay)",
+        s.suggested,
+        s.alerts,
+        s.denied.len(),
+        s.errors.len()
+    );
+    match s.first_proposal_tick {
+        Some(t) => outln!(
+            out,
+            "strategy: first proposal or alert at tick {t} ({})",
+            label_at(t)
+        ),
+        None => outln!(out, "strategy: never proposed anything"),
+    }
+    match (s.first_proposal_tick, st.first_unsafe_tick) {
+        (Some(p), Some(u)) if p <= u => {
+            outln!(
+                out,
+                "timing: it spoke up {} tick(s) before the first unsafe tick",
+                u - p
+            )
+        }
+        (Some(_), Some(u)) => outln!(
+            out,
+            "timing: it first spoke up AFTER the first unsafe tick ({u})"
+        ),
+        (None, Some(u)) => outln!(out, "timing: it never spoke up, but tick {u} was unsafe"),
+        _ => {}
+    }
+    for e in &s.errors {
+        outln!(out, "error: {e}");
     }
     Ok(if s.errors.is_empty() { 0 } else { 1 })
 }

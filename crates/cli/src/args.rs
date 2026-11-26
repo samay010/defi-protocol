@@ -91,6 +91,19 @@ pub enum Cmd {
         #[arg(long, default_value = "aave")]
         protocol: String,
     },
+    /// Replay a strategy over recorded account history from a CSV file (nothing executed)
+    #[command(
+        after_help = "Feeds the strategy one recorded row per tick, exactly as `watch` would show it live (aggregate USD view), runs the risk engine in manual mode and reports what the strategy WOULD have proposed. Nothing is executed and no position is simulated: this answers 'when would it have warned me?', not 'how much would I have made?'.\n\nCSV (first line exactly): label,collateral_usd,debt_usd,liq_threshold_bps\nExample row: 2026-01-01,3000,2000,8500\nLines starting with # and blank lines are ignored. At most 100000 rows and 8 MiB. The report also states, from the data alone, the lowest health factor and how many ticks were below 1.0.\n\nThe history is whatever you supply: this command checks its format, not where it came from."
+    )]
+    Backtest {
+        strategy: String,
+        /// CSV file with the recorded history
+        #[arg(long)]
+        data: String,
+        /// Protocol id the history stands for (aave, compound or morpho); must match the strategy's manifest
+        #[arg(long, default_value = "aave")]
+        protocol: String,
+    },
     /// Show a strategy's content hash; --pin records it as reviewed
     Verify {
         /// Strategy directory

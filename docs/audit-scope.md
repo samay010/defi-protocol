@@ -66,6 +66,8 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 Real on-chain interaction, key management (the project deliberately never handles keys),
 network protocol code.
 
+- Backtest (`core/src/replay.rs`): CSV parser with size limits (100000 rows, 8 MiB) and a replay adapter that serves row `tick - 1`; fund-moving actions are errors. A backtest reports what a strategy would have proposed; it does not model prices, interest or liquidation outcomes.
+
 ## Items a reviewer must confirm against contract source
 - Morpho Blue reader (`adapter-morpho`): `SharesMathLib.toAssetsUp/Down` formulas (`mulDiv(shares, totalAssets + VIRTUAL_ASSETS, totalShares + VIRTUAL_SHARES)`), `VIRTUAL_SHARES = 1e6`, `VIRTUAL_ASSETS = 1` and `ORACLE_PRICE_SCALE = 1e36`. These were not read from `SharesMathLib.sol`/`ConstantsLib.sol` directly (unreachable from the build sandbox); the first two match Morpho's official SDK.
 - Compound III reader: `isLiquidatable` rule was read from Comet source at commit `f766f51`; no live market has been tested.

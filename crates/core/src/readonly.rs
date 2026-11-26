@@ -56,6 +56,24 @@ pub trait AccountSource {
     fn read(&self) -> Result<AggregateView, String>;
 }
 
+/// The snapshot a strategy sees for one aggregate view (shared with the replay adapter).
+pub fn aggregate_snapshot(tick: u64, view: &AggregateView) -> Snapshot {
+    let mut markets = BTreeMap::new();
+    markets.insert(
+        AGGREGATE_ASSET.to_string(),
+        MarketInfo {
+            supply_apy_bps: 0,
+            price_usd_micro: MICRO,
+            liq_threshold_bps: view.liq_threshold_bps,
+        },
+    );
+    Snapshot {
+        tick,
+        markets,
+        account: view.to_account(),
+    }
+}
+
 pub struct ReadOnlyAdapter<S: AccountSource> {
     source: S,
     /// The account as of the first read (`account()` must return a reference, so it cannot
@@ -81,21 +99,7 @@ impl<S: AccountSource> ProtocolAdapter for ReadOnlyAdapter<S> {
     }
 
     fn snapshot(&self, tick: u64) -> Result<Snapshot, String> {
-        let view = self.source.read()?;
-        let mut markets = BTreeMap::new();
-        markets.insert(
-            AGGREGATE_ASSET.to_string(),
-            MarketInfo {
-                supply_apy_bps: 0,
-                price_usd_micro: MICRO,
-                liq_threshold_bps: view.liq_threshold_bps,
-            },
-        );
-        Ok(Snapshot {
-            tick,
-            markets,
-            account: view.to_account(),
-        })
+        Ok(aggregate_snapshot(tick, &self.source.read()?))
     }
 
     fn simulate(&self, tick: u64, action: &Action) -> Result<Snapshot, String> {

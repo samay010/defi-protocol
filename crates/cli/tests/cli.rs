@@ -1387,3 +1387,92 @@ fn watch_protocol_is_validated_before_env_network_or_strategy() {
     let r = c.run(&["watch", "--help"]);
     assert!(r.out.contains("--protocol"), "{}", r.out);
 }
+
+fn write_history(c: &Cli, name: &str, text: &str) -> String {
+    std::fs::create_dir_all(&c.work).unwrap();
+    let p = c.work.join(name);
+    std::fs::write(&p, text).unwrap();
+    p.to_string_lossy().to_string()
+}
+
+#[test]
+fn backtest_replays_history_and_reports_timing() {
+    let c = Cli::new("backtest");
+    let csv = "label,collateral_usd,debt_usd,liq_threshold_bps\n\
+               d1,3000,1000,8500\nd2,1800,1000,8500\nd3,1700,1000,8500\n\
+               d4,1400,1000,8500\nd5,1100,1000,8500\nd6,3000,1000,8500\n";
+    let f = write_history(&c, "h.csv", csv);
+    let r = c.run(&["backtest", "health-factor-monitor", "--data", &f]);
+    assert_eq!(r.code, 0, "{}{}", r.out, r.err);
+    for needle in [
+        "6 recorded ticks",
+        "nothing is executed",
+        "lowest health factor 0.935 at tick 5 (d5); 1 tick(s) below 1.0",
+        "first tick below 1.0 is 5 (d5)",
+        "2 alerts",
+        "first proposal or alert at tick 3 (d3)",
+        "spoke up 2 tick(s) before the first unsafe tick",
+    ] {
+        assert!(r.out.contains(needle), "missing {needle:?}:\n{}", r.out);
+    }
+}
+
+#[test]
+fn backtest_validates_everything_before_running() {
+    let c = Cli::new("backtest-validate");
+    let f = write_history(
+        &c,
+        "ok.csv",
+        "label,collateral_usd,debt_usd,liq_threshold_bps\na,1,1,8000\n",
+    );
+    // bad protocol: usage error
+    let r = c.run(&[
+        "backtest",
+        "health-factor-monitor",
+        "--data",
+        &f,
+        "--protocol",
+        "x",
+    ]);
+    assert_eq!(r.code, 2, "{}{}", r.out, r.err);
+    // missing file and bad content: failures that name the problem
+    let r = c.run(&[
+        "backtest",
+        "health-factor-monitor",
+        "--data",
+        "/definitely/not/here.csv",
+    ]);
+    assert_eq!(r.code, 1);
+    assert!(r.err.contains("cannot read"), "{}", r.err);
+    let bad = write_history(
+        &c,
+        "bad.csv",
+        "label,collateral_usd,debt_usd,liq_threshold_bps\na,1,1,99999\n",
+    );
+    let r = c.run(&["backtest", "health-factor-monitor", "--data", &bad]);
+    assert_eq!(r.code, 1);
+    assert!(
+        r.err.contains("line 2") && r.err.contains("liq_threshold_bps"),
+        "{}",
+        r.err
+    );
+    // --data is required
+    assert_eq!(c.run(&["backtest", "health-factor-monitor"]).code, 2);
+    // unknown strategy
+    let r = c.run(&["backtest", "no-such-strategy", "--data", &f]);
+    assert_ne!(r.code, 0);
+}
+
+#[test]
+fn backtest_is_documented_in_help() {
+    let c = Cli::new("backtest-help");
+    let r = c.run(&["backtest", "--help"]);
+    assert_eq!(r.code, 0);
+    for needle in [
+        "label,collateral_usd,debt_usd,liq_threshold_bps",
+        "Nothing is executed",
+        "WOULD",
+    ] {
+        assert!(r.out.contains(needle), "help lacks {needle:?}: {}", r.out);
+    }
+}

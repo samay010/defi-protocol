@@ -11,6 +11,7 @@ pub mod hash;
 pub mod kv;
 pub mod manifest;
 pub mod readonly;
+pub mod replay;
 pub mod risk;
 pub mod runtime;
 pub mod sandbox;
