@@ -158,8 +158,28 @@ pub enum Cmd {
     /// Read-only Compound III testnet data (needs PROTOCOL_RPC_URL and PROTOCOL_COMPOUND_COMET)
     #[command(subcommand)]
     Compound(CompoundCmd),
+    /// Read-only Morpho Blue testnet data (needs PROTOCOL_RPC_URL, PROTOCOL_MORPHO_ADDRESS, PROTOCOL_MORPHO_MARKET_ID)
+    #[command(subcommand)]
+    Morpho(MorphoCmd),
     /// Print the version
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MorphoCmd {
+    /// Show an account's collateral, debt and health factor in one Morpho Blue market (read-only; Sepolia testnet only)
+    #[command(
+        after_help = "Reads the market's parameters, the account's position and the oracle price with eth_call, then applies Morpho Blue's own health rule. Nothing is signed or sent.\n\
+Environment (never flags or files, the RPC URL usually contains an API key):\n\
+  PROTOCOL_RPC_URL           https JSON-RPC URL of a Sepolia node\n\
+  PROTOCOL_MORPHO_ADDRESS    Morpho Blue contract address from Morpho's own deployment list\n\
+  PROTOCOL_MORPHO_MARKET_ID  32-byte market id (0x + 64 hex digits)\n\
+Other chains (including mainnet) are refused. Amounts are in the loan token (not dollars: Morpho has no USD price). Morpho's views do not accrue interest, so the debt shown is as of the market's last update and the health factor can be slightly optimistic."
+    )]
+    Account {
+        /// 0x address to inspect
+        address: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

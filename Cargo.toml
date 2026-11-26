@@ -5,6 +5,7 @@ members = [
     "crates/adapter-aave",
     "crates/chain",
     "crates/adapter-compound",
+    "crates/adapter-morpho",
     "crates/rpc",
     "crates/strategies",
     "crates/cli",

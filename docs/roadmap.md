@@ -11,7 +11,7 @@ Rust workspace, architecture docs and ADRs, strategy interfaces (trait + line pr
   `protocol aave account` and `protocol watch` (live Sepolia data, aggregate USD view, suggestions only).
 - Done: adapter abstraction (`protocol-chain`, `ReadOnlyAdapter`) and a read-only Compound III reader
   (`protocol compound account`); verified against Comet source and a scripted node, not a live market
-  (no official Sepolia deployment found). Next: Morpho, then `watch --protocol`.
+  (no official Sepolia deployment found). Done: read-only Morpho Blue reader (`protocol morpho account`). Next: `watch --protocol`.
 - Done: `protocol aave preflight` (real transaction simulation via `eth_call` from the account,
   Sepolia, no keys; revert reasons shown). Next: simulate strategy proposals through it, and
   `eth_call` state overrides or a fork for 'what if I had the funds'.

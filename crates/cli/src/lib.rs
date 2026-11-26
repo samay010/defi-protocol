@@ -19,6 +19,7 @@ use protocol_adapter_aave::onchain::{AaveReader, AccountData, Address, EthCall};
 use protocol_adapter_aave::simulate;
 use protocol_adapter_aave::AaveSim;
 use protocol_adapter_compound::{CompoundReader, MarketConfig, Position};
+use protocol_adapter_morpho::{MarketId, MorphoReader};
 use protocol_core::adapter::{Account, ProtocolAdapter};
 use protocol_core::amount::{format_amount, parse_amount};
 use protocol_core::engine::{Engine, Outcome};
@@ -29,7 +30,7 @@ use protocol_core::store::{Instance, Store};
 use protocol_core::supervisor::{self, RunConfig};
 use protocol_core::types::{Action, ActionKind, Mode, Network, Scenario, Status};
 
-use args::{AaveCmd, Cli, Cmd, CompoundCmd, StrategiesCmd};
+use args::{AaveCmd, Cli, Cmd, CompoundCmd, MorphoCmd, StrategiesCmd};
 use clap::{CommandFactory, Parser};
 use resolve::{make_strategy, resolve, Resolved, Source, Tier};
 
@@ -182,6 +183,7 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
         Cmd::KillSwitch { which } => cmd_kill_switch(which, store, out),
         Cmd::Aave(AaveCmd::Account { address }) => cmd_aave_account(address, out),
         Cmd::Compound(CompoundCmd::Account { address }) => cmd_compound_account(address, out),
+        Cmd::Morpho(MorphoCmd::Account { address }) => cmd_morpho_account(address, out),
         Cmd::Aave(AaveCmd::Preflight {
             action,
             asset,
@@ -1449,6 +1451,88 @@ fn print_compound_account(
     }
 }
 
+/// Exact decimal text of a raw token amount (`d` decimals), trailing zeros trimmed.
+fn format_units(v: u128, d: u8) -> String {
+    let scale = 10u128.pow(u32::from(d));
+    let (int, frac) = (v / scale, v % scale);
+    if frac == 0 {
+        return int.to_string();
+    }
+    let f = format!("{frac:0>width$}", width = usize::from(d));
+    format!("{int}.{}", f.trim_end_matches('0'))
+}
+
+const ENV_MORPHO: &str = "PROTOCOL_MORPHO_ADDRESS";
+const ENV_MORPHO_MARKET: &str = "PROTOCOL_MORPHO_MARKET_ID";
+
+fn cmd_morpho_account(address: String, out: &mut dyn Write) -> R {
+    // validate the input first: a typo must not need the network or any secret
+    let user = Address::parse(&address).map_err(|e| E::Fail(e.to_string()))?;
+    let url = env_required(protocol_rpc::ENV_RPC_URL)?;
+    let morpho_text = env_required(ENV_MORPHO)?;
+    let morpho = Address::parse(&morpho_text).map_err(|e| E::Fail(format!("{ENV_MORPHO}: {e}")))?;
+    let id_text = env_required(ENV_MORPHO_MARKET)?;
+    let id = MarketId::parse(&id_text).map_err(|e| E::Fail(format!("{ENV_MORPHO_MARKET}: {e}")))?;
+    let transport = protocol_rpc::connect(&url).map_err(|e| E::Fail(e.to_string()))?;
+    let reader = MorphoReader::new(transport, morpho);
+    let fail = |e: protocol_adapter_morpho::ChainError| E::Fail(e.to_string());
+    let params = reader.params(&id).map_err(fail)?;
+    let loan_dec = reader.decimals(&params.loan_token).map_err(fail)?;
+    let coll_dec = reader.decimals(&params.collateral_token).map_err(fail)?;
+    let pos = reader.position(&id, &params, &user).map_err(fail)?;
+    let amt = format_units;
+    outln!(out, "Morpho Blue account (read-only, testnet)");
+    outln!(out, "  address            {}", user.to_hex());
+    outln!(out, "  morpho             {}", reader.morpho().to_hex());
+    outln!(out, "  market id          {}", id.to_hex());
+    outln!(out, "  loan token         {}", params.loan_token.to_hex());
+    outln!(
+        out,
+        "  collateral token   {}",
+        params.collateral_token.to_hex()
+    );
+    outln!(
+        out,
+        "  liquidation LLTV   {:.2}%",
+        params.lltv as f64 / 1e16
+    );
+    outln!(
+        out,
+        "  collateral         {} (collateral token)",
+        amt(pos.raw.collateral, coll_dec)
+    );
+    outln!(
+        out,
+        "  collateral value   {} (loan token)",
+        amt(pos.collateral_value, loan_dec)
+    );
+    outln!(
+        out,
+        "  debt               {} (loan token)",
+        amt(pos.borrowed_assets, loan_dec)
+    );
+    outln!(
+        out,
+        "  max borrow         {} (loan token)",
+        amt(pos.max_borrow, loan_dec)
+    );
+    outln!(
+        out,
+        "  supplied           {} (loan token)",
+        amt(pos.supplied_assets, loan_dec)
+    );
+    match pos.health_factor() {
+        Some(hf) => outln!(out, "  health factor      {hf:.3}"),
+        None => outln!(out, "  health factor      n/a (no debt)"),
+    }
+    outln!(
+        out,
+        "  liquidatable       {}",
+        if pos.healthy() { "no" } else { "yes" }
+    );
+    Ok(0)
+}
+
 fn cmd_aave_preflight(
     action: String,
     asset: String,
@@ -1542,6 +1626,18 @@ fn print_aave_account(out: &mut dyn Write, user: &Address, pool: &Address, d: &A
 mod aave_tests {
     use super::*;
     use protocol_adapter_aave::onchain::decode_account_data;
+
+    #[test]
+    fn format_units_is_exact() {
+        assert_eq!(format_units(0, 6), "0");
+        assert_eq!(format_units(1_500_000, 6), "1.5");
+        assert_eq!(format_units(1, 18), "0.000000000000000001");
+        assert_eq!(format_units(7, 0), "7");
+        assert_eq!(
+            format_units(u128::MAX, 36),
+            "340.282366920938463463374607431768211455"
+        );
+    }
 
     fn words(w: [u128; 6]) -> String {
         format!("0x{}", w.map(|n| format!("{n:064x}")).concat())

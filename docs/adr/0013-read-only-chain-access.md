@@ -94,6 +94,9 @@ no decimals). The strategy itself is unchanged: it still sees the aggregate USD 
 and events only decide *when* a tick happens (they are printed, not fed to the strategy).
 
 
+## Morpho Blue (`protocol morpho account`)
+`crates/adapter-morpho` reads one market and one account. `_isHealthy` was read verbatim from `Morpho.sol`; signatures and field order from Morpho's docs; `VIRTUAL_SHARES = 1e6` and `VIRTUAL_ASSETS = 1` from Morpho's official SDK (a third-party page that said `VIRTUAL_ASSETS = 1e6` is wrong). Not read directly from source: `SharesMathLib.sol` and the `1e36` oracle scale (both unreachable from the sandbox); they are in `audit-scope.md` for a reviewer. Math uses a full 256-bit intermediate (`mul_div`), because collateral times an oracle price overflows `u128` for ordinary 18-decimal assets; it is tested against Python big-integer vectors. Limits: Morpho's views do not accrue interest, so debt is as of the last update and the health factor is slightly optimistic (the Compound reader errs the other way); amounts are loan-token units, not USD, and the generic aggregate view for `watch` carries the same caveat. Market id and addresses are supplied by the user, never built in.
+
 ## Compound III (`protocol compound account`)
 `crates/adapter-compound` reads one Comet market through the shared `protocol-chain` crate
 (`Address`, `EthCall`, hex and range guards, extracted from the Aave adapter so every protocol

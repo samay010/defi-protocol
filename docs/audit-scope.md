@@ -24,7 +24,7 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 | Critical | `external.rs`, `sandbox.rs`, `seccomp.rs`, `manifest.rs` | parse untrusted input; spawn processes; isolation (files, network, syscalls); limits |
 | High | `store.rs`, `supervisor.rs` | locking, kill switch, command inbox, restart logic |
 | High | `hash.rs` + `sha2` | what "verified" is bound to |
-| Medium | `adapter.rs`, adapter-aave, adapter-compound, chain | balance math, health factor |
+| Medium | `adapter.rs`, adapter-aave, adapter-compound, adapter-morpho, chain | balance math, health factor |
 | Low | `amount.rs`, `kv.rs`, `types.rs`, CLI | parsing helpers and presentation |
 
 ## Existing evidence
@@ -65,3 +65,7 @@ has been audited; it has not. Funds stay simulation-only until audits are done.
 
 Real on-chain interaction, key management (the project deliberately never handles keys),
 network protocol code.
+
+## Items a reviewer must confirm against contract source
+- Morpho Blue reader (`adapter-morpho`): `SharesMathLib.toAssetsUp/Down` formulas (`mulDiv(shares, totalAssets + VIRTUAL_ASSETS, totalShares + VIRTUAL_SHARES)`), `VIRTUAL_SHARES = 1e6`, `VIRTUAL_ASSETS = 1` and `ORACLE_PRICE_SCALE = 1e36`. These were not read from `SharesMathLib.sol`/`ConstantsLib.sol` directly (unreachable from the build sandbox); the first two match Morpho's official SDK.
+- Compound III reader: `isLiquidatable` rule was read from Comet source at commit `f766f51`; no live market has been tested.

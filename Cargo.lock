@@ -3095,6 +3095,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "protocol-adapter-morpho"
+version = "0.1.0"
+dependencies = [
+ "protocol-chain",
+ "protocol-core",
+]
+
+[[package]]
 name = "protocol-chain"
 version = "0.1.0"
 
@@ -3105,6 +3113,7 @@ dependencies = [
  "clap",
  "protocol-adapter-aave",
  "protocol-adapter-compound",
+ "protocol-adapter-morpho",
  "protocol-core",
  "protocol-rpc",
  "protocol-strategies",

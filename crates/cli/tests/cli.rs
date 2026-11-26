@@ -1335,3 +1335,23 @@ fn compound_account_validates_input_before_env_or_network() {
         assert!(r.out.contains(needle), "help lacks {needle:?}: {}", r.out);
     }
 }
+
+#[test]
+fn morpho_account_validates_input_before_env_or_network() {
+    let c = Cli::new("morpho-account");
+    let r = c.run(&["morpho", "account", "nonsense"]);
+    assert_eq!(r.code, 1, "{}{}", r.out, r.err);
+    assert!(r.err.contains("bad address"), "{}", r.err);
+    assert_eq!(c.run(&["morpho", "account"]).code, 2);
+    let r = c.run(&["morpho", "account", "--help"]);
+    assert_eq!(r.code, 0);
+    for needle in [
+        "Nothing is signed or sent",
+        "PROTOCOL_MORPHO_ADDRESS",
+        "PROTOCOL_MORPHO_MARKET_ID",
+        "optimistic",
+        "mainnet",
+    ] {
+        assert!(r.out.contains(needle), "help lacks {needle:?}: {}", r.out);
+    }
+}

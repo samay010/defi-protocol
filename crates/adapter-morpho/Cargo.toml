@@ -1,0 +1,11 @@
+[package]
+name = "protocol-adapter-morpho"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Read-only Morpho Blue adapter: one market, one account: collateral, debt, health factor. No I/O of its own, no keys."
+
+[dependencies]
+protocol-core = { path = "../core" }
+protocol-chain = { path = "../chain" }
