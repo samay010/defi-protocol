@@ -292,8 +292,6 @@ impl Store {
         }
     }
 
-    // ---- instance lock ------------------------------------------------------------------
-
     /// Try to take the exclusive lock once. `Ok(None)` means another process holds it.
     pub fn lock_instance(&self, name: &str) -> Result<Option<InstanceLock>, String> {
         let dir = self.instance_dir(name)?;
@@ -338,8 +336,6 @@ impl Store {
         matches!(file.try_lock_shared(), Err(TryLockError::WouldBlock))
     }
 
-    // ---- command inbox (approve / reject / act sent to a live instance) -------------
-
     pub fn push_command(&self, name: &str, line: &str) -> Result<(), String> {
         use std::sync::atomic::{AtomicU64, Ordering};
         static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -382,8 +378,6 @@ impl Store {
         }
         Ok(out)
     }
-
-    // ---- verification pins -------------------------------------------------------
 
     fn verified_path(&self) -> PathBuf {
         self.home.join("verified.list")

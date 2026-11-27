@@ -91,8 +91,6 @@ const SUPPLIER: &str = "cat >/dev/null\necho 'PROPOSE supply aave USDC 50000000 
 const SUPPLIER_MANIFEST: &str =
     "assets = [\"USDC\"]\nallowed_actions = [\"supply\", \"alert\"]\nmax_amount_per_action = \"100\"\nmax_total_exposure = \"120\"\n";
 
-// ---- basics ---------------------------------------------------------------------------------
-
 #[test]
 fn help_version_and_usage_errors() {
     let c = Cli::new("basic");
@@ -126,8 +124,6 @@ fn lists_and_describes_official_strategies() {
     let monitor = c.ok(&["strategies", "info", "health-factor-monitor"]);
     assert!(monitor.contains("cannot move funds"));
 }
-
-// ---- test / simulate ------------------------------------------------------------------------
 
 #[test]
 fn test_command_passes_for_official_strategies() {
@@ -223,8 +219,6 @@ fn risk_caps_stop_autonomous_supplies() {
     assert!(out.contains("funds moved (simulated): 500"));
     assert!(out.contains("total exposure cap 500 would be exceeded"));
 }
-
-// ---- run / approvals ------------------------------------------------------------------------
 
 #[test]
 fn run_approval_flow_end_to_end() {
@@ -454,8 +448,6 @@ fn mainnet_and_testnet_are_refused() {
     );
 }
 
-// ---- lifecycle controls ---------------------------------------------------------------------
-
 #[test]
 fn control_commands_validate_state() {
     let c = Cli::new("control");
@@ -552,8 +544,6 @@ fn live_pause_resume_and_stop_on_a_running_instance() {
     assert!(c.ok(&["ps"]).contains("stopped"));
 }
 
-// ---- external strategies: create / build / verify / run ---------------------------------------
-
 #[test]
 fn create_scaffolds_every_language() {
     let c = Cli::new("create");
@@ -573,7 +563,6 @@ fn create_scaffolds_every_language() {
         );
         assert!(Path::new(&base).join(&name).join("strategy.toml").is_file());
     }
-    // validation
     assert_eq!(
         c.run(&["create", "x", "--lang", "go", "--dir", &base]).code,
         2
@@ -732,7 +721,6 @@ fn verification_pinning_lifecycle() {
     .unwrap();
     assert!(c.ok(&["strategies", "info", &dir]).contains("UNVERIFIED"));
 
-    // so does a version bump
     fs::write(
         c.work.join("pinme/strategy.sh"),
         "cat >/dev/null\necho 'LOG hi'\necho DONE\n",
@@ -751,7 +739,6 @@ fn verification_pinning_lifecycle() {
     .unwrap();
     assert!(c.ok(&["strategies", "info", &dir]).contains("UNVERIFIED"));
 
-    // official strategies need no pin
     assert!(c.ok(&["verify", "rate-monitor"]).contains("official"));
 }
 
@@ -768,7 +755,6 @@ fn official_names_cannot_be_shadowed() {
     let r = c.run(&["strategies", "info", &d.to_string_lossy()]);
     assert_eq!(r.code, 1);
     assert!(r.err.contains("reserved"), "{}", r.err);
-    // and a built-in name always resolves to the real built-in
     assert!(c
         .ok(&["strategies", "info", "stable-lending"])
         .contains("official"));
@@ -788,8 +774,6 @@ fn invalid_manifest_gives_a_clear_error() {
         r.err
     );
 }
-
-// ---- external strategies under the risk engine -------------------------------------------------
 
 #[test]
 fn external_strategy_is_bound_by_its_manifest_caps() {
@@ -841,7 +825,6 @@ echo DONE\n";
         "{out}"
     );
     assert!(out.contains("count=3"), "state carried across ticks: {out}");
-    // and across runs
     let again = c.ok(&["run", &dir, "--ticks", "1", "--interval-ms", "0"]);
     assert!(again.contains("count=4"), "{again}");
 }
@@ -875,7 +858,6 @@ fn failing_external_strategy_is_restarted_then_marked_failed() {
     let inspect = c.ok(&["inspect", "always-fails"]);
     assert!(inspect.contains("status:     failed"));
     assert!(inspect.contains("restarts: 2"));
-    // other instances are unaffected
     c.ok(&["run", "rate-monitor", "--ticks", "1", "--interval-ms", "0"]);
     assert!(c.ok(&["ps"]).contains("completed"));
 }
@@ -948,8 +930,6 @@ fn state_and_audit_log_are_persisted_on_disk() {
     );
 }
 
-// ---- instance lock: races and stale status ----------------------------------------------------
-
 fn spawn_run(home: &str, args: &[&str]) -> std::thread::JoinHandle<(i32, String)> {
     let mut argv: Vec<String> = vec![
         "--home".into(),
@@ -990,7 +970,6 @@ fn a_second_run_of_a_live_instance_is_refused() {
     let second = c.run(&["run", "rate-monitor", "--ticks", "1", "--interval-ms", "0"]);
     assert_eq!(second.code, 1);
     assert!(second.err.contains("already running"), "{}", second.err);
-    // a different instance name of the same strategy is fine
     c.ok(&[
         "run",
         "rate-monitor",
@@ -1006,7 +985,6 @@ fn a_second_run_of_a_live_instance_is_refused() {
     let (code, out) = first.join().unwrap();
     assert_eq!(code, 0);
     assert!(out.contains("stopped"));
-    // after the first run ended, the lock is free again
     c.ok(&["run", "rate-monitor", "--ticks", "1", "--interval-ms", "0"]);
 }
 
@@ -1044,7 +1022,6 @@ fn stale_running_status_is_detected_and_recoverable() {
         .ok(&["inspect", "rate-monitor"])
         .contains("cleared stale status"));
 
-    // running again after a crash needs no manual cleanup
     fs::write(&status_file, "running\n").unwrap();
     let rerun = c.ok(&["run", "rate-monitor", "--ticks", "1", "--interval-ms", "0"]);
     assert!(rerun.contains("did not shut down cleanly"), "{rerun}");
@@ -1126,8 +1103,6 @@ fn two_runs_starting_at_the_same_instant_cannot_both_win() {
     assert_eq!(winner.0, 0);
 }
 
-// ---- sandbox ---------------------------------------------------------------------------------
-
 #[test]
 fn sandbox_flag_is_validated_and_builtins_never_need_it() {
     let c = Cli::new("sandbox-flag");
@@ -1189,9 +1164,7 @@ fn aave_account_needs_an_address_and_is_documented_in_help() {
 fn watch_validates_input_before_env_network_or_strategy() {
     let c = Cli::new("watch-validate");
     let good = "0x1111111111111111111111111111111111111111";
-    // --account is required
     assert_eq!(c.run(&["watch", "health-monitor"]).code, 2);
-    // bad address: failure, no env needed
     let r = c.run(&["watch", "health-monitor", "--account", "nonsense"]);
     assert_eq!(r.code, 1, "{}{}", r.out, r.err);
     assert!(r.err.contains("bad address"), "{}", r.err);
@@ -1244,7 +1217,6 @@ fn aave_preflight_validates_input_before_env_or_network() {
         assert_eq!(r.code, 1, "amount {bad:?}: {}{}", r.out, r.err);
         assert!(r.err.contains("bad amount"), "{}", r.err);
     }
-    // required flags are enforced by the argument parser
     let r = c.run(&["aave", "preflight", "supply"]);
     assert_eq!(r.code, 2);
 }
@@ -1311,7 +1283,6 @@ fn compound_account_validates_input_before_env_or_network() {
     let r = c.run(&["compound", "account", "nonsense"]);
     assert_eq!(r.code, 1, "{}{}", r.out, r.err);
     assert!(r.err.contains("bad address"), "{}", r.err);
-    // the address argument is required
     assert_eq!(c.run(&["compound", "account"]).code, 2);
     let r = c.run(&["compound", "account", "--help"]);
     assert_eq!(r.code, 0);
@@ -1414,7 +1385,6 @@ fn backtest_validates_everything_before_running() {
         "ok.csv",
         "label,collateral_usd,debt_usd,liq_threshold_bps\na,1,1,8000\n",
     );
-    // bad protocol: usage error
     let r = c.run(&[
         "backtest",
         "health-factor-monitor",
@@ -1445,9 +1415,7 @@ fn backtest_validates_everything_before_running() {
         "{}",
         r.err
     );
-    // --data is required
     assert_eq!(c.run(&["backtest", "health-factor-monitor"]).code, 2);
-    // unknown strategy
     let r = c.run(&["backtest", "no-such-strategy", "--data", &f]);
     assert_ne!(r.code, 0);
 }

@@ -748,15 +748,11 @@ mod tests {
 
     #[test]
     fn nonsense_from_a_node_is_an_error_not_a_guess() {
-        // an asset info with scale 0
         let bad = asset_reply(0, WETH, FEED_WETH, 0, 1, 1);
         assert!(decode_asset_info(&bad).is_err());
-        // a collateral factor above 100%
         let bad = asset_reply(0, WETH, FEED_WETH, 1_000_000_000_000_000_000, u64::MAX, 1);
         assert!(decode_asset_info(&bad).is_err());
-        // wrong length
         assert_eq!(decode_asset_info("0x00"), Err(ChainError::BadLength(1)));
-        // zero asset address
         let bad = asset_reply(
             0,
             "0x0000000000000000000000000000000000000000",
@@ -766,7 +762,6 @@ mod tests {
             1,
         );
         assert!(decode_asset_info(&bad).is_err());
-        // a zero price is refused
         let f = Fake::new().account(0, 1_000_000, 1, 0);
         f.set(
             GET_PRICE_SELECTOR,
@@ -786,7 +781,6 @@ mod tests {
             vec![(u128::MAX, 100_000_000), (0, 0)],
         );
         assert!(e.is_err());
-        // wrong number of collateral entries
         assert!(Position::new(&cfg, 0, 0, 1, vec![]).is_err());
     }
 

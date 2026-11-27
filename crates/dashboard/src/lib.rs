@@ -441,8 +441,6 @@ mod tests {
         assert!(!p.contains("eval(") && !p.contains("<form"));
     }
 
-    // ---- real sockets ----------------------------------------------------------------------
-
     fn exchange(port: u16, request: &[u8]) -> String {
         let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();

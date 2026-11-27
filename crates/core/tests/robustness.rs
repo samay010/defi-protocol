@@ -23,8 +23,6 @@ use protocol_core::risk::{Decision, RiskPolicy, RiskState};
 use protocol_core::types::{Action, ActionKind, Mode, Network};
 use protocol_core::MAX_PROPOSALS_PER_TICK;
 
-// ---- tiny deterministic PRNG (xorshift64*) -------------------------------------------------------
-
 struct Rng(u64);
 
 impl Rng {
@@ -127,8 +125,6 @@ fn no_panic<T>(what: &str, input: &str, f: impl FnOnce() -> T) -> T {
 
 const ITERATIONS: usize = 40_000;
 
-// ---- parser robustness -----------------------------------------------------------------------------
-
 #[test]
 fn strategy_output_parser_never_panics_and_keeps_its_promises() {
     let seeds: Vec<&[u8]> = vec![
@@ -181,8 +177,8 @@ fn manifest_parser_never_panics_and_only_accepts_consistent_manifests() {
     let base = r#"
 name = "my-strategy"
 version = "0.1.0"
-language = "python"
-entry = "python3 strategy.py"
+language = "c"
+entry = "./build/strategy"
 description = "demo"
 protocols = ["aave"]
 assets = ["usdc", "dai"]
@@ -308,8 +304,6 @@ fn amount_parser_never_panics_and_round_trips() {
         assert_eq!(parse_amount(&format_amount(v)), Ok(v), "{v}");
     }
 }
-
-// ---- ledger and risk properties --------------------------------------------------------------------
 
 fn markets() -> BTreeMap<String, MarketInfo> {
     let mut m = BTreeMap::new();

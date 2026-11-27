@@ -237,8 +237,6 @@ struct RunArgs {
     instance: Option<String>,
 }
 
-// ---- small helpers ---------------------------------------------------------------------
-
 fn parse_mode(v: Option<&str>, default: Mode) -> Result<Mode, E> {
     match v {
         None => Ok(default),
@@ -353,8 +351,6 @@ fn persist_engine(store: &Store, meta: &mut Instance, engine: &mut Engine) -> Re
     store.append_audit(&meta.name, &engine.drain_audit())
 }
 
-// ---- in-memory simulation (used by `simulate` and `test`) ----------------------------------
-
 #[derive(Default)]
 struct SimResult {
     executed: u64,
@@ -464,8 +460,6 @@ fn drive_with(
     r.account = engine.adapter.account().clone();
     Ok(r)
 }
-
-// ---- commands -------------------------------------------------------------------------------
 
 fn cmd_strategies(sub: StrategiesCmd, store: &Store, out: &mut dyn Write) -> R {
     match sub {
@@ -837,7 +831,6 @@ fn cmd_run(a: RunArgs, sandbox: SandboxMode, store: &Store, out: &mut dyn Write)
     if !valid_name(&name) {
         return Err(E::Fail(format!("invalid instance name '{name}'")));
     }
-
     outln!(
         out,
         "strategy {} {} ({})",

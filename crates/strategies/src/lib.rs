@@ -58,8 +58,6 @@ fn param_f64(input: &TickInput, key: &str, default: f64) -> Result<f64, String> 
     }
 }
 
-// ---------------------------------------------------------------------------------
-
 pub struct HealthFactorMonitor;
 
 impl Strategy for HealthFactorMonitor {
@@ -107,8 +105,6 @@ impl Strategy for HealthFactorMonitor {
     }
 }
 
-// ---------------------------------------------------------------------------------
-
 pub struct RateMonitor;
 
 impl Strategy for RateMonitor {
@@ -137,8 +133,6 @@ impl Strategy for RateMonitor {
         Ok(out)
     }
 }
-
-// ---------------------------------------------------------------------------------
 
 pub struct StableLending;
 

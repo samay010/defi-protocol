@@ -647,7 +647,6 @@ mod tests {
         let zero = "0x0000000000000000000000000000000000000000";
         let e = decode_market_params(&mk(zero, WAD / 2)).unwrap_err();
         assert!(e.to_string().contains("does not exist"), "{e}");
-        // a zero irm is allowed
         let ok = format!(
             "0x{}{}{}{}{}",
             aword(LOAN),
@@ -745,7 +744,6 @@ mod tests {
         assert!(r.position(&id(), &p, &addr(USER)).is_err());
         assert!(decode_position("0x").is_err());
         assert!(decode_market(&format!("0x{}", word(1))).is_err());
-        // a value wider than 128 bits is refused
         let wide = format!("0x{}{}{}", "ff".repeat(32), word(0), word(0));
         assert!(decode_position(&wide).is_err());
     }

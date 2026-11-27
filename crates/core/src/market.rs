@@ -181,8 +181,6 @@ pub fn find<'a>(entries: &'a [Entry], name: &str, version: Option<&str>) -> Opti
         .max_by_key(|e| key(&e.version))
 }
 
-// ---- install ------------------------------------------------------------------------------
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -380,8 +378,6 @@ mod tests {
         assert!(find(&e, "alpha", Some("9.9.9")).is_none());
         assert!(find(&e, "gamma", None).is_none());
     }
-
-    // ---- install tests ----
 
     use std::cell::RefCell;
 
