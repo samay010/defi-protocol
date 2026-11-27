@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use protocol_core::external::ExternalStrategy;
 use protocol_core::hash::hash_dir;
-use protocol_core::manifest::Manifest;
+use protocol_core::manifest::{Language, Manifest};
 use protocol_core::sandbox::SandboxMode;
 use protocol_core::store::Store;
 use protocol_core::strategy::Strategy;
@@ -111,6 +111,10 @@ pub fn make_strategy(res: &Resolved, sandbox: SandboxMode) -> Result<Box<dyn Str
     match &res.source {
         Source::Builtin => protocol_strategies::create(&res.manifest.name)
             .ok_or_else(|| format!("no built-in strategy '{}'", res.manifest.name)),
+        // WebAssembly runs inside the interpreter: there is no process to sandbox
+        Source::External(dir) if res.manifest.language == Language::Wasm => Ok(Box::new(
+            protocol_wasm::WasmStrategy::from_manifest(&res.manifest, dir)?,
+        )),
         Source::External(dir) => Ok(Box::new(
             ExternalStrategy::from_manifest(&res.manifest, dir)?.with_sandbox(sandbox)?,
         )),

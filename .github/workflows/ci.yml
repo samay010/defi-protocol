@@ -14,6 +14,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-wasip1
       - name: bubblewrap (sandbox tests; they skip if it cannot start)
         if: runner.os == 'Linux'
         run: |
@@ -26,6 +27,8 @@ jobs:
         env:
           # on Linux the sandbox tests must really run (not skip)
           PROTOCOL_REQUIRE_SANDBOX_TESTS: ${{ runner.os == 'Linux' && '1' || '' }}
+          # the wasm32-wasip1 target is installed above, so the wasm test must really run
+          PROTOCOL_REQUIRE_WASM_TESTS: '1'
   supply-chain:
     runs-on: ubuntu-latest
     steps:

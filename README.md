@@ -1,7 +1,7 @@
 # DeFi Strategy Execution Protocol (v0.1, simulation-only)
 
 An open-source, local-first engine for writing, testing and running automated DeFi strategies.
-The core is Rust. Strategies can be written in **Rust, C, C++, Python or Java** and all speak
+The core is Rust. Strategies can be written in **Rust, C or C++** and all speak
 the same small contract. Every action a strategy proposes passes an independent risk engine
 and your chosen execution mode before anything happens.
 
@@ -37,7 +37,7 @@ protocol inspect stable-lending
 Write your own strategy in any supported language:
 
 ```bash
-protocol create my-strategy --lang python        # alert-only scaffold in ./custom-strategies
+protocol create my-strategy --lang rust          # alert-only scaffold in ./custom-strategies
 protocol build my-strategy
 protocol test my-strategy
 protocol simulate my-strategy
@@ -53,7 +53,7 @@ State is stored in `~/.protocol` (override with `--home DIR` or `$PROTOCOL_HOME`
 |---|---|
 | Rust workspace, `protocol` CLI | implemented |
 | Strategy contract, language-neutral line protocol | implemented |
-| Out-of-process strategies: Rust, C, C++, Python, Java templates | implemented (build + run tested for all five) |
+| Out-of-process strategies: Rust, C, C++ templates | implemented (build + run tested for all three) |
 | Manifest with declared, least-privilege permissions | implemented |
 | Risk engine (protocol/asset/action allow-lists, per-action and total caps, health-factor floor, kill switch) | implemented |
 | Autonomous / Approval / Manual modes, approve/reject, manual actions | implemented |
@@ -65,7 +65,8 @@ State is stored in `~/.protocol` (override with `--home DIR` or `$PROTOCOL_HOME`
 | Real read-only Aave data (Sepolia testnet, `eth_call` only) | implemented (health factor and USD scales confirmed; ltv/threshold unmatched) |
 | OS sandbox for external strategies (bubblewrap, Linux) | implemented, not independently reviewed |
 | Sandboxed `build` and seccomp deny-list (Linux) | implemented, not independently reviewed |
-| WASM runtime, macOS sandbox | **proposed** |
+| WebAssembly strategies (`--lang wasm`, `wasmi` interpreter, no OS sandbox needed) | implemented, not yet independently reviewed |
+| macOS sandbox | **proposed** |
 | Real transaction simulation, signing, wallets, testnet | **proposed** |
 | Backtesting, dashboard, marketplace, decentralized execution | **proposed** |
 

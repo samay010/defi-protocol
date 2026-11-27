@@ -23,8 +23,7 @@ max_amount_per_action = "0"
 max_total_exposure = "0"
 min_health_factor = 1.5
 tick_timeout_ms = 2000
-# Optional memory cap in MiB for this strategy process. Leave unset for Java: the JVM reserves
-# far more address space than it uses and will not start under a tight limit.
+# Optional memory cap in MiB for this strategy process.
 # max_memory_mb = 512
 
 [params]
@@ -49,6 +48,20 @@ Workflow:
     protocol verify __NAME__      # content hash for review pinning
 
 Build output goes to `build/` or `target/`, which are excluded from the verification hash.
+"#;
+
+const WASM_NOTE: &str = r#"
+## WebAssembly notes
+
+This strategy is compiled to `wasm32-wasip1` and runs inside the protocol's built-in WebAssembly
+interpreter, not as an operating-system process. It can read the tick input on stdin and write
+to stdout/stderr; it has no files, no network, no clock and no environment, and each tick has a
+CPU and memory budget. Install the compiler target once (outside the build sandbox):
+
+    rustup target add wasm32-wasip1
+
+The built `.wasm` file lives under `target/`, which is excluded from the verification hash, like
+every other build output: review and pin the source, build it yourself.
 "#;
 
 const RUST_CARGO: &str = r#"[package]
@@ -84,32 +97,6 @@ fn main() {
     // println!("PROPOSE supply aave USDC 100000000 example");
     println!("DONE");
 }
-"#;
-
-const PYTHON: &str = r#"import sys
-
-
-def main():
-    tick = 0
-    health_factor = None
-    for raw in sys.stdin:
-        parts = raw.rstrip("\n").split(" ", 2)
-        if parts[0] == "TICK":
-            tick = int(parts[1])
-        elif parts[0] == "HEALTH_FACTOR":
-            try:
-                health_factor = float(parts[1])
-            except ValueError:
-                health_factor = None
-        elif parts[0] == "END":
-            break
-    print(f"LOG tick {tick} health_factor {health_factor}")
-    # Example proposal (needs matching permissions in strategy.toml):
-    # print("PROPOSE supply aave USDC 100000000 example")
-    print("DONE")
-
-
-main()
 "#;
 
 const C_SRC: &str = r#"#include <stdio.h>
@@ -163,39 +150,11 @@ int main() {
 }
 "#;
 
-const JAVA_SRC: &str = r#"import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-
-public class Strategy {
-    public static void main(String[] args) throws IOException {
-        BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
-        long tick = 0;
-        String hf = "none";
-        String line;
-        while ((line = in.readLine()) != null) {
-            if (line.startsWith("TICK ")) {
-                tick = Long.parseLong(line.substring(5).trim());
-            } else if (line.startsWith("HEALTH_FACTOR ")) {
-                hf = line.substring(14);
-            } else if (line.equals("END")) {
-                break;
-            }
-        }
-        System.out.println("LOG tick " + tick + " health_factor " + hf);
-        // Example proposal (needs matching permissions in strategy.toml):
-        // System.out.println("PROPOSE supply aave USDC 100000000 example");
-        System.out.println("DONE");
-    }
-}
-"#;
-
 pub fn entry_for(lang: Language, name: &str) -> String {
     match lang {
         Language::Rust => format!("./target/release/{name}"),
-        Language::Python => "python3 strategy.py".to_string(),
+        Language::Wasm => format!("target/wasm32-wasip1/release/{name}.wasm"),
         Language::C | Language::Cpp => "./build/strategy".to_string(),
-        Language::Java => "java -cp build Strategy".to_string(),
     }
 }
 
@@ -205,12 +164,11 @@ pub fn entry_for(lang: Language, name: &str) -> String {
 pub fn build_command(lang: Language) -> &'static str {
     match lang {
         Language::Rust => "cargo build --release",
-        Language::Python => "python3 -m py_compile strategy.py",
+        Language::Wasm => "cargo build --release --target wasm32-wasip1",
         Language::C => "mkdir -p build && cc -O2 -Wall -o build/strategy strategy.c",
         Language::Cpp => {
             "mkdir -p build && c++ -O2 -Wall -std=c++17 -o build/strategy strategy.cpp"
         }
-        Language::Java => "mkdir -p build && javac -d build Strategy.java",
     }
 }
 
@@ -228,20 +186,22 @@ pub fn scaffold(name: &str, lang: Language, base: &Path) -> Result<(PathBuf, Vec
     if dir.exists() {
         return Err(format!("{} already exists", dir.display()));
     }
+    let mut readme = fill(README, name, lang);
+    if lang == Language::Wasm {
+        readme.push_str(WASM_NOTE);
+    }
     let mut files: Vec<(&str, String)> = vec![
         ("strategy.toml", fill(MANIFEST, name, lang)),
-        ("README.md", fill(README, name, lang)),
-        (".gitignore", "target/\nbuild/\n__pycache__/\n".to_string()),
+        ("README.md", readme),
+        (".gitignore", "target/\nbuild/\n".to_string()),
     ];
     match lang {
-        Language::Rust => {
+        Language::Rust | Language::Wasm => {
             files.push(("Cargo.toml", fill(RUST_CARGO, name, lang)));
             files.push(("src/main.rs", RUST_MAIN.to_string()));
         }
-        Language::Python => files.push(("strategy.py", PYTHON.to_string())),
         Language::C => files.push(("strategy.c", C_SRC.to_string())),
         Language::Cpp => files.push(("strategy.cpp", CPP_SRC.to_string())),
-        Language::Java => files.push(("Strategy.java", JAVA_SRC.to_string())),
     }
     let mut written = Vec::new();
     for (rel, content) in files {
@@ -290,6 +250,11 @@ mod tests {
     fn entries_and_build_commands_are_defined() {
         assert_eq!(entry_for(Language::Rust, "x"), "./target/release/x");
         assert!(build_command(Language::C).contains("build/strategy"));
-        assert!(build_command(Language::Java).contains("javac"));
+        assert!(build_command(Language::Cpp).contains("c++"));
+        assert!(build_command(Language::Wasm).contains("wasm32-wasip1"));
+        assert_eq!(
+            entry_for(Language::Wasm, "x"),
+            "target/wasm32-wasip1/release/x.wasm"
+        );
     }
 }

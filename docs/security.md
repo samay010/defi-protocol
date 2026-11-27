@@ -60,14 +60,19 @@ and operational assessments are complete.
    risk engine checks). **Do not run strategies you have not read.**
 2. **Resource limits are partial.** Memory is limited only if the manifest sets `max_memory_mb`
    (Linux only: on other systems such a manifest is refused instead of silently ignored)
-   (address space, not resident memory; left off by default because the JVM reserves far more
-   address space than it uses and will not start under a tight limit). There are no limits on
+   (address space, not resident memory; left off by default). There are no limits on
    open files, file size or number of processes, and the CPU limit is best effort (skipped if the
    user's own hard limit is already lower). The limits come from `ulimit` in a `/bin/sh` wrapper
    (unix only). They contain accidents; they are not a security boundary.
    Because the strategy runs in its own process group, Ctrl-C in the terminal does not reach it:
    the CLI exits and the strategy process ends on its own within its time and CPU limits.
-3. **`protocol build` runs the project's own toolchain** (`cargo`, `cc`, `javac`, ...). Build scripts
+3. **WebAssembly strategies are isolated differently.** A `wasm` strategy runs in the in-process
+   `wasmi` interpreter, not in the bubblewrap sandbox: it can only call the few WASI functions the
+   host defines (stdin, stdout, stderr; no files, no network, no clock), with per-tick CPU (fuel)
+   and memory limits. This is stronger by construction for the guest, but the host process is not
+   itself sandboxed, so the protection is only as good as `wasmi` and `crates/wasm/src/lib.rs`,
+   neither independently audited yet (ADR 0015).
+4. **`protocol build` runs the project's own toolchain** (`cargo`, `cc`, `c++`). Build scripts
    and procedural macros run arbitrary code. Only build code you trust.
 4. **No real transaction simulation**, no signing, no wallets, no chain access.
 5. **No audit.** Treat everything as pre-alpha.

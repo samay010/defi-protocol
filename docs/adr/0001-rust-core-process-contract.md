@@ -3,7 +3,7 @@
 **Status:** Accepted
 
 **Context.** The core must be Rust, but strategy authors must not be limited to Rust (Rust, C, C++,
-Python, Java now; Go, TS later). Not every language compiles to WebAssembly.
+Python, Java at the time; Python and Java were removed later, see ADR 0014). Not every language compiles to WebAssembly.
 
 **Decision.** The engine defines one strategy contract (`strategy.rs`). Official strategies
 implement it in-process. All other strategies are processes that speak a small line protocol over

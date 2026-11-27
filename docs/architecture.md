@@ -56,7 +56,7 @@ A strategy is a function `(snapshot, params, previous state) -> (logs, proposals
 Official strategies implement the Rust `Strategy` trait in-process. Anything else is a separate
 process speaking a line protocol on stdin/stdout, spawned once per tick. The engine owns the
 state, so a crashed strategy restarts with nothing lost. This is the *same contract* for all
-languages, which is what lets a Python and a Rust developer use the same platform capabilities.
+languages, which is what lets Rust, C and C++ authors use the same platform capabilities.
 
 ## Manifest permissions
 
@@ -93,6 +93,6 @@ run" and "apply it now" by whether it can take the lock. See ADR 0008.
 ## Not built yet (proposed)
 
 Other protocol adapters (Compound, Morpho), event-driven monitoring,
-WASM/WASI runtime, a macOS sandbox, real transaction simulation,
+a macOS sandbox, real transaction simulation,
 user-controlled signing in a separate process, backtesting, dashboard, marketplace and
 decentralized execution. See `docs/roadmap.md`.

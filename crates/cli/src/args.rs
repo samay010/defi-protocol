@@ -37,7 +37,7 @@ pub enum Cmd {
     Create {
         /// Strategy name (lowercase letters, digits, '-' or '_')
         name: String,
-        /// rust, c, cpp, python or java
+        /// rust, c, cpp or wasm
         #[arg(long)]
         lang: Option<String>,
         /// Parent directory (default: ./custom-strategies)

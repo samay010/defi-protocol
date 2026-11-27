@@ -3,7 +3,7 @@
 Status: accepted
 
 ## Context
-Strategies are untrusted code in five languages, run on the user's own machine. Until now they
+Strategies are untrusted code in several languages (since ADR 0014: Rust, C, C++), run on the user's own machine. Until now they
 ran as ordinary child processes: limits for accidents, but a malicious strategy could read the
 user's files or use the network. WASM would isolate Rust/C/C++ but not Python or Java, which
 the project wants to support.

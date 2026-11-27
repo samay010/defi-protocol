@@ -18,3 +18,5 @@ Status values: Accepted, Proposed, Superseded.
 | 0011 | `serde` + `toml` for strategy manifests | Accepted |
 | 0012 | `bubblewrap` OS sandbox for external strategies | Accepted |
 | 0013 | Read-only chain access in two layers (alloy transport) | Accepted |
+| 0014 | Drop Python and Java strategy support | Accepted |
+| 0015 | WebAssembly strategies on the `wasmi` interpreter | Accepted |

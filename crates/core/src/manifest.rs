@@ -22,8 +22,8 @@ pub enum Language {
     Rust,
     C,
     Cpp,
-    Python,
-    Java,
+    /// Rust (or C/C++) compiled to `wasm32-wasip1`, run inside the in-process interpreter.
+    Wasm,
 }
 
 impl Language {
@@ -32,8 +32,7 @@ impl Language {
             "rust" => Some(Language::Rust),
             "c" => Some(Language::C),
             "cpp" | "c++" => Some(Language::Cpp),
-            "python" | "py" => Some(Language::Python),
-            "java" => Some(Language::Java),
+            "wasm" => Some(Language::Wasm),
             _ => None,
         }
     }
@@ -43,19 +42,12 @@ impl Language {
             Language::Rust => "rust",
             Language::C => "c",
             Language::Cpp => "cpp",
-            Language::Python => "python",
-            Language::Java => "java",
+            Language::Wasm => "wasm",
         }
     }
 
-    pub fn all() -> [Language; 5] {
-        [
-            Language::Rust,
-            Language::C,
-            Language::Cpp,
-            Language::Python,
-            Language::Java,
-        ]
+    pub fn all() -> [Language; 4] {
+        [Language::Rust, Language::C, Language::Cpp, Language::Wasm]
     }
 }
 
@@ -82,7 +74,7 @@ pub struct Manifest {
     pub min_health_factor: f64,
     pub tick_timeout_ms: u64,
     /// Address-space limit (`ulimit -v`) for external strategy processes, in MiB.
-    /// `0` means no memory limit. Opt-in because some runtimes (the JVM) reserve far more
+    /// `0` means no memory limit. Opt-in because some runtimes reserve far more
     /// address space than they use and fail to start under a tight limit.
     pub max_memory_mb: u64,
     pub params: BTreeMap<String, String>,
@@ -152,6 +144,22 @@ fn param_text(key: &str, v: Value) -> Result<String, String> {
     }
 }
 
+/// A wasm strategy's `entry` is just a file inside the strategy directory.
+fn check_wasm_entry(entry: &str) -> Result<(), String> {
+    let ok = entry.ends_with(".wasm")
+        && !entry.starts_with('/')
+        && !entry.contains('\\')
+        && !entry.chars().any(|c| c.is_whitespace() || c.is_control())
+        && !entry.split('/').any(|part| part.is_empty() || part == "..");
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "entry '{entry}': for language wasm the entry must be a relative path to a .wasm file inside the strategy directory (no spaces, no '..')"
+        ))
+    }
+}
+
 impl Manifest {
     pub fn parse(text: &str) -> Result<Manifest, String> {
         let raw: Raw = toml::from_str(text).map_err(|e| e.to_string())?;
@@ -166,15 +174,14 @@ impl Manifest {
         if version.trim().is_empty() {
             return Err("'version' must not be empty".into());
         }
-        let language = Language::parse(&raw.language).ok_or_else(|| {
-            format!(
-                "unknown language '{}' (rust, c, cpp, python, java)",
-                raw.language
-            )
-        })?;
+        let language = Language::parse(&raw.language)
+            .ok_or_else(|| format!("unknown language '{}' (rust, c, cpp, wasm)", raw.language))?;
         let entry = raw.entry;
         if entry.trim().is_empty() {
             return Err("'entry' must not be empty".into());
+        }
+        if language == Language::Wasm {
+            check_wasm_entry(&entry)?;
         }
 
         let clean = |v: Vec<String>| -> Vec<String> {
@@ -334,8 +341,8 @@ mod tests {
 # a comment
 name = "my-strategy"
 version = "0.1.0"
-language = "python"
-entry = "python3 strategy.py"
+language = "c"
+entry = "./build/strategy"
 description = "demo"
 protocols = ["aave"]
 assets = ["usdc", "dai"]
@@ -359,7 +366,7 @@ count = 7
     fn parses_full_manifest() {
         let m = Manifest::parse(GOOD).unwrap();
         assert_eq!(m.name, "my-strategy");
-        assert_eq!(m.language, Language::Python);
+        assert_eq!(m.language, Language::C);
         assert_eq!(m.assets, vec!["USDC", "DAI"]);
         assert_eq!(
             m.allowed_actions,
@@ -434,8 +441,38 @@ count = 7
     #[test]
     fn language_aliases() {
         assert_eq!(Language::parse("C++"), Some(Language::Cpp));
-        assert_eq!(Language::parse("py"), Some(Language::Python));
         assert_eq!(Language::parse("go"), None);
-        assert_eq!(Language::all().len(), 5);
+        for removed in ["python", "py", "java"] {
+            assert_eq!(
+                Language::parse(removed),
+                None,
+                "{removed} is no longer supported"
+            );
+        }
+        assert_eq!(Language::parse("wasm"), Some(Language::Wasm));
+        assert_eq!(Language::all().len(), 4);
+    }
+
+    #[test]
+    fn wasm_entries_must_be_safe_relative_wasm_files() {
+        let wasm = |entry: &str| {
+            Manifest::parse(&format!(
+                "name = \"x\"\nversion = \"1\"\nlanguage = \"wasm\"\nentry = \"{entry}\"\nprotocols = [\"aave\"]\n"
+            ))
+        };
+        assert!(wasm("target/wasm32-wasip1/release/x.wasm").is_ok());
+        assert!(wasm("x.wasm").is_ok());
+        for bad in [
+            "/etc/x.wasm",
+            "../x.wasm",
+            "a/../x.wasm",
+            "a//x.wasm",
+            "x.wasm extra",
+            "x.bin",
+            "./x",
+            "a\\\\x.wasm",
+        ] {
+            assert!(wasm(bad).is_err(), "{bad} must be refused");
+        }
     }
 }

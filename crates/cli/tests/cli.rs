@@ -560,10 +560,9 @@ fn create_scaffolds_every_language() {
     let base = c.work.to_string_lossy().to_string();
     for (lang, file) in [
         ("rust", "src/main.rs"),
-        ("python", "strategy.py"),
         ("c", "strategy.c"),
         ("cpp", "strategy.cpp"),
-        ("java", "Strategy.java"),
+        ("wasm", "src/main.rs"),
     ] {
         let name = format!("demo-{lang}");
         let out = c.ok(&["create", &name, "--lang", lang, "--dir", &base]);
@@ -637,11 +636,6 @@ fn rust_strategy_full_cycle() {
 }
 
 #[test]
-fn python_strategy_full_cycle() {
-    full_language_cycle("python", &["python3"]);
-}
-
-#[test]
 fn c_strategy_full_cycle() {
     full_language_cycle("c", &["cc"]);
 }
@@ -649,11 +643,6 @@ fn c_strategy_full_cycle() {
 #[test]
 fn cpp_strategy_full_cycle() {
     full_language_cycle("cpp", &["c++"]);
-}
-
-#[test]
-fn java_strategy_full_cycle() {
-    full_language_cycle("java", &["javac", "java"]);
 }
 
 #[test]
@@ -1475,4 +1464,73 @@ fn backtest_is_documented_in_help() {
     ] {
         assert!(r.out.contains(needle), "help lacks {needle:?}: {}", r.out);
     }
+}
+
+#[test]
+fn python_and_java_are_no_longer_supported_languages() {
+    let c = Cli::new("no-py-java");
+    let base = c.work.to_string_lossy().to_string();
+    for lang in ["python", "py", "java"] {
+        let r = c.run(&["create", "demo-x", "--lang", lang, "--dir", &base]);
+        assert_eq!(r.code, 2, "{lang}: {}{}", r.out, r.err);
+        assert!(r.err.contains("rust, c, cpp, wasm"), "{lang}: {}", r.err);
+    }
+}
+
+fn have_wasm_target() -> bool {
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg("rustup target list --installed 2>/dev/null | grep -q wasm32-wasip1")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[test]
+fn wasm_strategy_full_cycle() {
+    if !have_wasm_target() {
+        assert!(
+            std::env::var_os("PROTOCOL_REQUIRE_WASM_TESTS").is_none(),
+            "PROTOCOL_REQUIRE_WASM_TESTS is set but the wasm32-wasip1 target is not installed"
+        );
+        eprintln!("skipping wasm: rustup target wasm32-wasip1 not installed");
+        return;
+    }
+    full_language_cycle("wasm", &["cargo"]);
+}
+
+/// A hand-built module (no toolchain needed) runs through the real CLI, with the OS sandbox
+/// required: WebAssembly strategies do not need bubblewrap.
+#[test]
+fn prebuilt_wasm_module_runs_without_an_os_sandbox() {
+    let c = Cli::new("wasm-prebuilt");
+    let dir = c.work.join("echo-wasm");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("strategy.toml"),
+        "name = \"echo-wasm\"\nversion = \"0.1.0\"\nlanguage = \"wasm\"\nentry = \"echo.wasm\"\n\
+         description = \"fixture\"\nprotocols = [\"aave\"]\nallowed_actions = [\"alert\"]\n\
+         max_amount_per_action = \"0\"\nmax_total_exposure = \"0\"\ntick_timeout_ms = 2000\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("echo.wasm"),
+        include_bytes!("../../wasm/tests/fixtures/echo.wasm"),
+    )
+    .unwrap();
+    let d = dir.to_string_lossy().to_string();
+    let r = c.run_with(&["--sandbox", "require"], &["simulate", &d, "--ticks", "2"]);
+    assert_eq!(r.code, 0, "{}{}", r.out, r.err);
+    assert!(r.out.contains("hello from wasm"), "{}", r.out);
+    assert!(r.out.contains("sandbox: not needed"), "{}", r.out);
+    // a module that is missing is a clear failure, not a crash
+    fs::remove_file(dir.join("echo.wasm")).unwrap();
+    let r = c.run(&["simulate", &d, "--ticks", "1"]);
+    assert_ne!(r.code, 0);
+    assert!(
+        r.err.contains("protocol build") || r.out.contains("protocol build"),
+        "{}{}",
+        r.out,
+        r.err
+    );
 }

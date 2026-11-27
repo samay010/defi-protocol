@@ -38,8 +38,7 @@ DONE                                               mandatory last line
   its own process group and on timeout the **whole group is killed**, so background processes you
   fork do not outlive the tick. A CPU-time limit applies (timeout rounded up, plus one second).
   Stderr (first 4 KiB) is shown if you exit non-zero.
-- Optional `max_memory_mb` (16 to 1048576) sets an address-space limit. It is off by default; do not
-  set it for Java (the JVM reserves far more address space than it uses).
+- Optional `max_memory_mb` (16 to 1048576) sets an address-space limit. It is off by default.
 
 ## What happens to a proposal
 
@@ -52,8 +51,8 @@ Denials are reported with a reason and recorded in the audit log. See `docs/arch
 ```toml
 name = "my-strategy"            # lowercase letters, digits, - or _, starts with a letter
 version = "0.1.0"
-language = "python"             # rust | c | cpp | python | java
-entry = "python3 strategy.py"   # program + args, run inside the strategy directory
+language = "c"                  # rust | c | cpp
+entry = "./build/strategy"      # program + args, run inside the strategy directory
 description = "What it does"
 protocols = ["aave"]
 assets = ["USDC", "DAI"]
@@ -62,7 +61,7 @@ max_amount_per_action = 100        # tokens; default 0. Use "100.5" (a string) f
 max_total_exposure = 500           # cumulative per instance; default 0
 min_health_factor = 1.5          # withdrawals that would go below this are denied
 tick_timeout_ms = 2000
-max_memory_mb = 256              # optional; omit for no limit (and always omit for Java)
+max_memory_mb = 256              # optional; omit for no limit
 
 [params]
 my_threshold = "42"                # delivered as PARAM lines
@@ -83,34 +82,26 @@ fixed by the CLI (not read from the manifest):
 | Language | Entry | `protocol build` runs |
 |---|---|---|
 | Rust | `./target/release/<name>` | `cargo build --release` |
-| Python | `python3 strategy.py` | `python3 -m py_compile strategy.py` |
 | C | `./build/strategy` | `cc -O2 -Wall -o build/strategy strategy.c` |
 | C++ | `./build/strategy` | `c++ -O2 -Wall -std=c++17 -o build/strategy strategy.cpp` |
-| Java | `java -cp build Strategy` | `javac -d build Strategy.java` |
 
-Minimal Python example that supplies 50 USDC when APY is high (needs
-`allowed_actions = ["supply", "alert"]`, `assets = ["USDC"]`, and caps in the manifest):
-
-```python
-import sys
-apy = 0
-for raw in sys.stdin:
-    p = raw.rstrip("\n").split(" ")
-    if p[0] == "MARKET" and p[1] == "USDC":
-        apy = int(p[2].split("=")[1])
-    elif p[0] == "END":
-        break
-if apy >= 400:
-    print("PROPOSE supply aave USDC 50000000 high yield")
-print(f"LOG usdc apy {apy} bps")
-print("DONE")
-```
+Minimal C example that supplies 50 USDC when APY is high (needs
+`allowed_actions = ["supply", "alert"]`, `assets = ["USDC"]`, and caps in the manifest): see the
+template that `protocol create <name> --lang c` writes; the wire format is the line protocol
+above (`MARKET ...` lines in, `PROPOSE ...`, `LOG ...` and `DONE` out).
 
 ## Language-specific notes
 
-- **Rust / C / C++** are candidates for a WASM/WASI runtime later (strong isolation by default).
-  Today they run as ordinary processes.
-- **Python / Java** need out-of-process runners; real isolation needs OS mechanisms
-  (containers, seccomp, namespaces). Not built yet. See `docs/security.md`.
-- Do not assume every language can compile to WebAssembly: the process contract exists so any
-  language with stdin/stdout works.
+- **Rust / C / C++** are the supported strategy languages (ADR 0014 removed Python and Java).
+  They run as ordinary processes inside the OS sandbox (`docs/security.md`).
+- **`wasm`** (`protocol create <name> --lang wasm`) is Rust built for `wasm32-wasip1` and run
+  inside the built-in `wasmi` interpreter (ADR 0015): same line protocol on stdin/stdout, but no
+  files, no network, no clock and no environment, a CPU budget (fuel) and a memory limit per tick,
+  and no bubblewrap needed (so it also works where the OS sandbox does not, such as macOS). Install
+  the compiler target once: `rustup target add wasm32-wasip1`. The manifest `entry` is a relative
+  path to the `.wasm` file (`target/wasm32-wasip1/release/<name>.wasm`). `max_memory_mb` sets the
+  memory limit (default 64 MiB); `tick_timeout_ms` sets the CPU budget (20000 instructions per
+  millisecond, an approximation). The `.wasm` is a build output and, like every other build
+  output, not part of the verification hash.
+- The process contract itself is language-neutral (any program with stdin/stdout speaks it), but
+  only these three have templates, build commands and tests.

@@ -68,6 +68,8 @@ network protocol code.
 
 - Backtest (`core/src/replay.rs`): CSV parser with size limits (100000 rows, 8 MiB) and a replay adapter that serves row `tick - 1`; fund-moving actions are errors. A backtest reports what a strategy would have proposed; it does not model prices, interest or liquidation outcomes.
 
+- WebAssembly host (`crates/wasm`): the WASI subset (`fd_read`/`fd_write` on fds 0-2 only, no file, socket or clock functions), the fuel and memory limits, output caps, and the use of the third-party `wasmi` interpreter. The host process is not OS-sandboxed (no child process exists), so a `wasmi` escape would run with the user's rights.
+
 ## Items a reviewer must confirm against contract source
 - Morpho Blue reader (`adapter-morpho`): `SharesMathLib.toAssetsUp/Down` formulas (`mulDiv(shares, totalAssets + VIRTUAL_ASSETS, totalShares + VIRTUAL_SHARES)`), `VIRTUAL_SHARES = 1e6`, `VIRTUAL_ASSETS = 1` and `ORACLE_PRICE_SCALE = 1e36`. These were not read from `SharesMathLib.sol`/`ConstantsLib.sol` directly (unreachable from the build sandbox); the first two match Morpho's official SDK.
 - Compound III reader: `isLiquidatable` rule was read from Comet source at commit `f766f51`; no live market has been tested.

@@ -22,6 +22,7 @@ allow = [
     "MIT-0",               # aws-lc-sys
     "CDLA-Permissive-2.0", # webpki-root-certs (Mozilla root list)
     "Zlib",                # foldhash
+    "Apache-2.0 WITH LLVM-exception", # wasmparser and other wasmi dependencies
 ]
 # NOT allowed on purpose: LGPL-2.1-or-later. It appears only as one alternative of
 # r-efi's "MIT OR Apache-2.0 OR LGPL-2.1-or-later"; cargo-deny satisfies that via MIT.

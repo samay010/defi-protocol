@@ -29,14 +29,17 @@ Rust workspace, architecture docs and ADRs, strategy interfaces (trait + line pr
   daemon so `run` can be detached (today it runs in the foreground; use a terminal multiplexer).
 
 ## Phase 4: Multi-language SDK: started
-- Done: scaffolds + build + run for Rust, C, C++, Python, Java on one shared contract.
+- Done: scaffolds + build + run for Rust, C and C++ on one shared contract (Python and Java were removed on 2026-11-26, see ADR 0014).
 - Next: published SDK packages with typed helpers per language, protocol versioning, a
-  conformance test-suite each SDK must pass, WASM/WASI runtime for Rust/C/C++, Go and TS later.
+  conformance test-suite each SDK must pass, Go and TS later.
+- Done: WebAssembly strategies (`--lang wasm`): Rust built for `wasm32-wasip1`, run inside the
+  in-process `wasmi` interpreter with a minimal WASI subset, fuel and memory limits (ADR 0015).
+  Not yet independently reviewed; C/C++ to wasm is possible but has no template.
 
 ## Phase 5: Testing infrastructure: started
 - Done: calm/stress simulation, `protocol test`.
 - Next: backtesting on historical data, real transaction simulation (fork or `eth_call`),
-  WASM runtime, sandbox on macOS. Done: sandboxed `build`, seccomp deny-list, parser fuzzing
+  sandbox on macOS (WASM strategies already run there). Done: sandboxed `build`, seccomp deny-list, parser fuzzing
   (std-only tests; cargo-fuzz targets exist), process-group kill, CPU limit, opt-in memory limit, and
   the bubblewrap OS sandbox for external strategies on Linux (ADR 0012).
 

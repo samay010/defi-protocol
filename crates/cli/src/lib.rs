@@ -284,6 +284,13 @@ fn print_sandbox_line(res: &Resolved, sandbox: SandboxMode, out: &mut dyn Write)
     if !matches!(res.source, Source::External(_)) {
         return;
     }
+    if res.manifest.language == Language::Wasm {
+        outln!(
+            out,
+            "sandbox: not needed. This strategy runs inside the WebAssembly interpreter: no files, no network, no clock, limited CPU and memory."
+        );
+        return;
+    }
     match sandbox {
         SandboxMode::Require => outln!(
             out,
@@ -537,12 +544,10 @@ fn cmd_strategies(sub: StrategiesCmd, store: &Store, out: &mut dyn Write) -> R {
 
 fn cmd_create(name: String, lang: Option<String>, dir: Option<PathBuf>, out: &mut dyn Write) -> R {
     let Some(lang_s) = lang else {
-        return usage("--lang is required (rust, c, cpp, python, java)");
+        return usage("--lang is required (rust, c, cpp, wasm)");
     };
     let Some(lang) = Language::parse(&lang_s) else {
-        return usage(&format!(
-            "unknown language '{lang_s}' (rust, c, cpp, python, java)"
-        ));
+        return usage(&format!("unknown language '{lang_s}' (rust, c, cpp, wasm)"));
     };
     let base = dir.unwrap_or_else(|| PathBuf::from("custom-strategies"));
     if !valid_name(&name) {
@@ -594,6 +599,12 @@ fn cmd_build(name: String, sandbox: SandboxMode, store: &Store, out: &mut dyn Wr
         dir.display()
     );
     outln!(out, "$ {cmd}");
+    if r.manifest.language == Language::Wasm {
+        outln!(
+            out,
+            "note: needs the compiler target once: rustup target add wasm32-wasip1"
+        );
+    }
     // Keeps the sandbox (and its seccomp filter file) alive until the build has finished.
     let mut _sandbox_guard: Option<sandbox::Sandbox> = None;
     let mut command = match sandbox {
