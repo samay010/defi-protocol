@@ -4,6 +4,7 @@
 //! Exit codes: 0 success, 1 failure (including failed tests), 2 usage error.
 
 mod args;
+mod dash;
 mod resolve;
 mod templates;
 
@@ -189,6 +190,7 @@ fn dispatch(cmd: Cmd, sandbox: SandboxMode, store: &Store, out: &mut dyn Write) 
             data,
             protocol,
         } => cmd_backtest(&strategy, &data, &protocol, sandbox, store, out),
+        Cmd::Dashboard { port } => dash::cmd_dashboard(port, store, out),
         Cmd::Compound(CompoundCmd::Account { address }) => cmd_compound_account(address, out),
         Cmd::Morpho(MorphoCmd::Account { address }) => cmd_morpho_account(address, out),
         Cmd::Aave(AaveCmd::Preflight {

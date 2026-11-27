@@ -46,3 +46,12 @@ strategies print a warning on `info`, `simulate` and `run`.
 
 `--home DIR`, else `$PROTOCOL_HOME`, else `~/.protocol`. Contains `instances/`, `verified.list`
 and the `KILL` marker. Plain text files you can read and back up.
+
+## protocol dashboard
+`protocol dashboard [--port 8787]` starts a read-only status page on `127.0.0.1` and prints a link
+with a random secret token (`http://127.0.0.1:<port>/?t=<token>`). Open it in a browser on the same
+device. It shows the kill switch, instances (status, mode, network, tick, pending count), one
+instance's account, pending proposals, strategy state and recent log, and the built-in strategies.
+It cannot change anything; use the CLI to approve, run or stop. The token changes every run. Stop
+with Ctrl-C. Unix only. Details and threat model: ADR 0016.
+

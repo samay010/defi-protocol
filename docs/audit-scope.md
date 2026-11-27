@@ -73,3 +73,6 @@ network protocol code.
 ## Items a reviewer must confirm against contract source
 - Morpho Blue reader (`adapter-morpho`): `SharesMathLib.toAssetsUp/Down` formulas (`mulDiv(shares, totalAssets + VIRTUAL_ASSETS, totalShares + VIRTUAL_SHARES)`), `VIRTUAL_SHARES = 1e6`, `VIRTUAL_ASSETS = 1` and `ORACLE_PRICE_SCALE = 1e36`. These were not read from `SharesMathLib.sol`/`ConstantsLib.sol` directly (unreachable from the build sandbox); the first two match Morpho's official SDK.
 - Compound III reader: `isLiquidatable` rule was read from Comet source at commit `f766f51`; no live market has been tested.
+
+## Dashboard
+`crates/dashboard` (HTTP parsing, token and Host checks, headers, page) and `crates/cli/src/dash.rs` (read-only data provider).

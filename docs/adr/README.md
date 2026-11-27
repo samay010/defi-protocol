@@ -20,3 +20,4 @@ Status values: Accepted, Proposed, Superseded.
 | 0013 | Read-only chain access in two layers (alloy transport) | Accepted |
 | 0014 | Drop Python and Java strategy support | Accepted |
 | 0015 | WebAssembly strategies on the `wasmi` interpreter | Accepted |
+| 0016 | Read-only local dashboard | Accepted |

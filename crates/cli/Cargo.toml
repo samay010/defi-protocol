@@ -22,4 +22,5 @@ protocol-adapter-morpho = { path = "../adapter-morpho" }
 protocol-strategies = { path = "../strategies" }
 clap = { version = "4.6.9", features = ["derive"] }
 protocol-rpc = { path = "../rpc" }
+protocol-dashboard = { path = "../dashboard" }
 protocol-wasm = { path = "../wasm" }

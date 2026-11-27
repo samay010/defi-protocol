@@ -3136,6 +3136,7 @@ dependencies = [
  "protocol-adapter-compound",
  "protocol-adapter-morpho",
  "protocol-core",
+ "protocol-dashboard",
  "protocol-rpc",
  "protocol-strategies",
  "protocol-wasm",
@@ -3151,6 +3152,10 @@ dependencies = [
  "sha2 0.11.1",
  "toml",
 ]
+
+[[package]]
+name = "protocol-dashboard"
+version = "0.1.0"
 
 [[package]]
 name = "protocol-rpc"

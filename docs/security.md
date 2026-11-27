@@ -116,3 +116,10 @@ Sepolia is refused. `protocol aave preflight` additionally asks the node to exec
 (supply, withdraw, borrow, repay) as if the account had sent it; the node runs it and nothing is
 broadcast, so no key and no signature exist. `watch` runs strategies in manual mode, so fund-moving proposals are never
 executed. Strategies themselves still have no network access (sandbox).
+
+## Dashboard (read-only, local)
+`protocol dashboard` listens on 127.0.0.1 only, requires a per-run random token, checks the `Host`
+header, accepts GET only, sends no CORS headers and a strict CSP, and renders data with
+`textContent`. It has no write path. See ADR 0016 for what it does not protect against (code
+already running as you).
+

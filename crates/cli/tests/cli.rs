@@ -1534,3 +1534,12 @@ fn prebuilt_wasm_module_runs_without_an_os_sandbox() {
         r.err
     );
 }
+
+#[test]
+fn dashboard_is_documented_read_only_and_validates_its_port() {
+    let c = Cli::new("dash-help");
+    let h = c.ok(&["dashboard", "--help"]);
+    assert!(h.contains("127.0.0.1") && h.contains("read-only") && h.contains("--port"));
+    let r = c.run(&["dashboard", "--port", "99999"]);
+    assert_eq!(r.code, 2);
+}

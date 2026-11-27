@@ -1,0 +1,9 @@
+[package]
+name = "protocol-dashboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Read-only localhost dashboard server: std-only HTTP, loopback only, token and Host checks. Knows nothing about the protocol's data; it renders what a `Data` provider gives it."
+
+[dependencies]

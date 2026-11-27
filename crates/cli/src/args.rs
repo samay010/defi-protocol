@@ -91,6 +91,15 @@ pub enum Cmd {
         #[arg(long, default_value = "aave")]
         protocol: String,
     },
+    /// Serve a read-only status page on this device (127.0.0.1 only, secret link)
+    #[command(
+        after_help = "Starts a small web server bound to 127.0.0.1 (never a public interface) and prints a link with a random secret token. Open the link in a browser on this device. The page shows instances, status, kill switch, account, pending proposals, strategy state and the recent log. It is strictly read-only: it cannot approve, reject, run, stop or change anything; use the CLI for that. The token changes every run. Stop with Ctrl-C."
+    )]
+    Dashboard {
+        /// Port to listen on (0 picks a free one)
+        #[arg(long, default_value_t = 8787)]
+        port: u16,
+    },
     /// Replay a strategy over recorded account history from a CSV file (nothing executed)
     #[command(
         after_help = "Feeds the strategy one recorded row per tick, exactly as `watch` would show it live (aggregate USD view), runs the risk engine in manual mode and reports what the strategy WOULD have proposed. Nothing is executed and no position is simulated: this answers 'when would it have warned me?', not 'how much would I have made?'.\n\nCSV (first line exactly): label,collateral_usd,debt_usd,liq_threshold_bps\nExample row: 2026-01-01,3000,2000,8500\nLines starting with # and blank lines are ignored. At most 100000 rows and 8 MiB. The report also states, from the data alone, the lowest health factor and how many ticks were below 1.0.\n\nThe history is whatever you supply: this command checks its format, not where it came from."
