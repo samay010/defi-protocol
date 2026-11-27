@@ -76,3 +76,6 @@ network protocol code.
 
 ## Dashboard
 `crates/dashboard` (HTTP parsing, token and Host checks, headers, page) and `crates/cli/src/dash.rs` (read-only data provider).
+
+## Strategy index
+`crates/core/src/market.rs` (index parsing, URL validation, staging, sanitizing and install checks) and `crates/cli/src/market.rs` (git invocation, manifest check).

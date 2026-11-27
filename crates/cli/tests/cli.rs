@@ -1543,3 +1543,105 @@ fn dashboard_is_documented_read_only_and_validates_its_port() {
     let r = c.run(&["dashboard", "--port", "99999"]);
     assert_eq!(r.code, 2);
 }
+
+const H64: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const C40: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn market_index(c: &Cli) -> String {
+    let line = |n: &str, v: &str, d: &str| {
+        format!("{n} | {v} | rust | {H64} | https://github.com/a/b | {C40} | {d}")
+    };
+    let text = format!(
+        "# protocol-market-index v1\n{}\n{}\n{}\n",
+        line("watcher", "1.0.0", "Watches health"),
+        line("watcher", "1.2.0", "Watches health"),
+        line("stable-lending", "9.9.9", "Pretends to be official")
+    );
+    let p = c.work.join("index.txt");
+    fs::write(&p, text).unwrap();
+    p.to_string_lossy().to_string()
+}
+
+#[test]
+fn market_search_and_info_read_a_local_index() {
+    let c = Cli::new("market-read");
+    let idx = market_index(&c);
+    let all = c.ok(&["market", "search", "--index", &idx]);
+    assert!(
+        all.contains("watcher")
+            && all.contains("1.2.0")
+            && all.contains("Listed does not mean reviewed")
+    );
+    assert!(c
+        .ok(&["market", "search", "nothing-like-this", "--index", &idx])
+        .contains("no matching"));
+    let info = c.ok(&["market", "info", "watcher", "--index", &idx]);
+    assert!(info.contains("1.2.0") && info.contains(H64) && info.contains(C40));
+    assert!(info.contains("does not vouch"));
+    let old = c.ok(&[
+        "market",
+        "info",
+        "watcher",
+        "--version",
+        "1.0.0",
+        "--index",
+        &idx,
+    ]);
+    assert!(old.contains("1.0.0"));
+    let r = c.run(&["market", "info", "ghost", "--index", &idx]);
+    assert_eq!(r.code, 1);
+    assert!(r.err.contains("not in this index"));
+}
+
+#[test]
+fn market_refuses_bad_indexes_and_needs_one() {
+    let c = Cli::new("market-bad");
+    let bad = c.work.join("bad.txt");
+    fs::write(&bad, "# protocol-market-index v1\nnot a valid line\n").unwrap();
+    let r = c.run(&["market", "search", "--index", &bad.to_string_lossy()]);
+    assert_eq!(r.code, 1);
+    assert!(r.err.contains("line 2"), "{}", r.err);
+    let nohdr = c.work.join("nohdr.txt");
+    fs::write(&nohdr, "x\n").unwrap();
+    assert_eq!(
+        c.run(&["market", "search", "--index", &nohdr.to_string_lossy()])
+            .code,
+        1
+    );
+    // no --index and no environment variable: a usage error, not a guess
+    if std::env::var("PROTOCOL_MARKET_INDEX").is_err() {
+        assert_eq!(c.run(&["market", "search"]).code, 2);
+    }
+    assert_eq!(
+        c.run(&["market", "search", "--index", "http://example.com/x"])
+            .code,
+        1
+    );
+}
+
+#[test]
+fn market_install_refuses_official_names_and_unknown_entries_without_fetching() {
+    let c = Cli::new("market-install");
+    let idx = market_index(&c);
+    let dir = c.work.join("dest");
+    let d = dir.to_string_lossy().to_string();
+    let r = c.run(&[
+        "market",
+        "install",
+        "stable-lending",
+        "--index",
+        &idx,
+        "--dir",
+        &d,
+    ]);
+    assert_eq!(r.code, 1);
+    assert!(r.err.contains("reserved"), "{}", r.err);
+    let r = c.run(&["market", "install", "ghost", "--index", &idx, "--dir", &d]);
+    assert_eq!(r.code, 1);
+    assert!(
+        !dir.exists(),
+        "nothing is created when nothing is installed"
+    );
+    let h = c.ok(&["market", "install", "--help"]);
+    assert!(h.contains("UNVERIFIED") && h.contains("never overwritten"));
+}

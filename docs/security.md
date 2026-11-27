@@ -123,3 +123,9 @@ header, accepts GET only, sends no CORS headers and a strict CSP, and renders da
 `textContent`. It has no write path. See ADR 0016 for what it does not protect against (code
 already running as you).
 
+## Strategy index (downloads)
+`protocol market install` brings third-party code onto your machine, so it is deliberately
+conservative: https and exact commit only, VCS data and build output removed, symlinks refused,
+content hash and manifest must match the index, never overwrites, never pins, never runs. The index
+is a list of claims by its publisher, not a review. See `docs/marketplace.md` and ADR 0017.
+

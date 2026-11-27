@@ -55,3 +55,12 @@ instance's account, pending proposals, strategy state and recent log, and the bu
 It cannot change anything; use the CLI to approve, run or stop. The token changes every run. Stop
 with Ctrl-C. Unix only. Details and threat model: ADR 0016.
 
+## protocol market
+`protocol market search [word]`, `protocol market info <name> [--version V]` and
+`protocol market install <name> [--version V] [--dir custom-strategies]`, each with
+`--index <file or https git URL>` (or `PROTOCOL_MARKET_INDEX`). `install` fetches the exact commit
+named in the index with `git`, deletes VCS data and build output, refuses symlinks and oversized
+trees, checks the content hash and manifest against the index and only then moves it into place.
+The strategy stays UNVERIFIED: read it, then `protocol verify <name> --pin`. Format and checks:
+`docs/marketplace.md`, ADR 0017.
+

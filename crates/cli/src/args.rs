@@ -186,8 +186,52 @@ pub enum Cmd {
     /// Read-only Morpho Blue testnet data (needs PROTOCOL_RPC_URL, PROTOCOL_MORPHO_ADDRESS, PROTOCOL_MORPHO_MARKET_ID)
     #[command(subcommand)]
     Morpho(MorphoCmd),
+    /// Find and install strategies from a git-based index (nothing is run or pinned)
+    #[command(subcommand)]
+    Market(MarketCmd),
     /// Print the version
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MarketCmd {
+    /// List strategies in an index, optionally filtered by a word in the name or description
+    #[command(
+        after_help = "The index is a text file: a local path, or an https git repository that has an index.txt at its top. Pass it with --index or set PROTOCOL_MARKET_INDEX. Format: docs/marketplace.md."
+    )]
+    Search {
+        /// Word to look for (default: list everything)
+        term: Option<String>,
+        /// Index file or https git URL
+        #[arg(long)]
+        index: Option<String>,
+    },
+    /// Show where a strategy is fetched from and what its source must hash to
+    Info {
+        name: String,
+        /// Version (default: the highest listed)
+        #[arg(long)]
+        version: Option<String>,
+        /// Index file or https git URL
+        #[arg(long)]
+        index: Option<String>,
+    },
+    /// Fetch a strategy at its exact pinned commit, check its hash against the index and put it in ./custom-strategies (it stays UNVERIFIED)
+    #[command(
+        after_help = "Needs git and network access for https indexes and repositories. The download is checked before anything is installed: the content hash must equal the index entry, strategy.toml must match the index, there must be no symbolic links, and VCS data plus build output (target, build, ...) are deleted because they are not covered by the hash. Nothing is run and nothing is pinned: read the source, then `protocol verify <name> --pin`. Existing directories are never overwritten."
+    )]
+    Install {
+        name: String,
+        /// Version (default: the highest listed)
+        #[arg(long)]
+        version: Option<String>,
+        /// Index file or https git URL
+        #[arg(long)]
+        index: Option<String>,
+        /// Parent directory for the strategy (default: ./custom-strategies)
+        #[arg(long)]
+        dir: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

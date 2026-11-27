@@ -66,6 +66,7 @@ State is stored in `~/.protocol` (override with `--home DIR` or `$PROTOCOL_HOME`
 | OS sandbox for external strategies (bubblewrap, Linux) | implemented, not independently reviewed |
 | Sandboxed `build` and seccomp deny-list (Linux) | implemented, not independently reviewed |
 | WebAssembly strategies (`--lang wasm`, `wasmi` interpreter, no OS sandbox needed) | implemented, not yet independently reviewed |
+| Git-based strategy index (`protocol market`, exact-commit https fetch, hash-checked, never auto-pinned) | implemented, not yet independently reviewed |
 | Read-only local dashboard (`protocol dashboard`, loopback + secret token, GET only) | implemented, not yet independently reviewed |
 | macOS sandbox | **proposed** |
 | Real transaction simulation, signing, wallets, testnet | **proposed** |

@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::sha256::{hex, Sha256};
 
-const SKIP_DIRS: [&str; 5] = ["target", "build", "__pycache__", ".git", "node_modules"];
+pub const SKIP_DIRS: [&str; 5] = ["target", "build", "__pycache__", ".git", "node_modules"];
 
 pub fn hash_dir(dir: &Path) -> Result<String, String> {
     let mut files = Vec::new();

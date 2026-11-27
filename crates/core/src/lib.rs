@@ -10,6 +10,7 @@ pub mod external;
 pub mod hash;
 pub mod kv;
 pub mod manifest;
+pub mod market;
 pub mod readonly;
 pub mod replay;
 pub mod risk;
